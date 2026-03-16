@@ -103,13 +103,12 @@ Speaker identification uses **Daily.co participant audio tracks**.
 
 Pipeline:
 
-Participant Audio Track
-↓
-Track ID mapped to User ID
-↓
-Deepgram Speech to Text
-↓
-Transcript stored with speaker_id
+```mermaid
+flowchart TD
+    A["Participant Audio Track"] --> B["Track ID mapped to User ID"]
+    B --> C["Deepgram Speech to Text"]
+    C --> D["Transcript stored with speaker_id"]
+```
 
 Benefits:
 
@@ -158,11 +157,11 @@ To prevent overlapping responses, triggers are placed into a **response queue**.
 
 Pipeline:
 
-Wake Word Event
-↓
-Added to AI Request Queue
-↓
-Processed sequentially
+```mermaid
+flowchart TD
+    A["Wake Word Event"] --> B["Added to AI Request Queue"]
+    B --> C["Processed sequentially"]
+```
 
 ---
 
@@ -352,25 +351,18 @@ Recommended technology:
 
 ## 4.2 Live Meeting Pipeline
 
-Participant Speech
-↓
-Daily.co WebRTC Stream
-↓
-Audio Track Routing
-↓
-Deepgram Streaming STT
-↓
-Transcript Storage
-↓
-Wake Word Detection
-↓
-AI Request Queue
-↓
-Claude Response Generation
-↓
-ElevenLabs TTS
-↓
-Audio Played into Meeting
+```mermaid
+flowchart TD
+    A["Participant Speech"] --> B["Daily.co WebRTC Stream"]
+    B --> C["Audio Track Routing"]
+    C --> D["Deepgram Streaming STT"]
+    D --> E["Transcript Storage"]
+    E --> F["Wake Word Detection"]
+    F --> G["AI Request Queue"]
+    G --> H["Claude Response Generation"]
+    H --> I["ElevenLabs TTS"]
+    I --> J["Audio Played into Meeting"]
+```
 
 ---
 
@@ -380,43 +372,37 @@ AI audio must not be transcribed.
 
 Solution:
 
-AI Audio Track
-↓
-Tagged as AI source
-↓
-Excluded from STT pipeline
+```mermaid
+flowchart TD
+    A["AI Audio Track"] --> B["Tagged as AI source"]
+    B --> C["Excluded from STT pipeline"]
+```
 
 ---
 
 ## 4.4 Post Meeting Processing Pipeline
 
-Meeting End Event
-↓
-Transcript Retrieval
-↓
-Summary Generation
-↓
-Decision Extraction
-↓
-Transcript Chunking
-↓
-Embedding Generation
-↓
-Vector Index Storage
+```mermaid
+flowchart TD
+    A["Meeting End Event"] --> B["Transcript Retrieval"]
+    B --> C["Summary Generation"]
+    C --> D["Decision Extraction"]
+    D --> E["Transcript Chunking"]
+    E --> F["Embedding Generation"]
+    F --> G["Vector Index Storage"]
+```
 
 ---
 
 ## 4.5 Question Answering Pipeline
 
-User Question
-↓
-Embedding Generation
-↓
-Vector Search
-↓
-Relevant Transcript Chunks
-↓
-LLM Response Generation
+```mermaid
+flowchart TD
+    A["User Question"] --> B["Embedding Generation"]
+    B --> C["Vector Search"]
+    C --> D["Relevant Transcript Chunks"]
+    D --> E["LLM Response Generation"]
+```
 
 ---
 
