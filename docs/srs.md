@@ -385,61 +385,32 @@ Example timeline output:
 
 # 4. System Architecture
 
+> For detailed diagrams (system architecture, pipeline flowcharts, and sequence diagrams), see [architecture.md](architecture.md).
+
 ## 4.1 System Components
 
-1. Frontend client (React + Tailwind)
-2. Backend API (FastAPI)
-3. Real-time audio pipeline (Daily.co + Deepgram)
-4. AI processing layer (Claude Sonnet + ElevenLabs)
-5. Data storage layer (MongoDB Atlas)
-6. Event bus layer (Redis Pub/Sub)
+| # | Component | Technology | Responsibility |
+|---|-----------|------------|----------------|
+| 1 | Frontend client | React + Tailwind | Meeting UI, dashboard, post-meeting reports |
+| 2 | Backend API | FastAPI | REST endpoints, WebSocket server, authentication |
+| 3 | Audio pipeline | Daily.co + Deepgram | WebRTC streaming, speech-to-text |
+| 4 | AI processing layer | Claude Sonnet + ElevenLabs | Wake detection, response generation, text-to-speech |
+| 5 | Data storage | MongoDB Atlas | Document storage, vector search index |
+| 6 | Event bus | Redis Pub/Sub | Real-time event routing between components |
 
----
+## 4.2 Key Pipelines
 
-## 4.2 Live Meeting Pipeline
+**Live Meeting Pipeline**: Participant speech → Daily.co WebRTC → audio track routing → Deepgram streaming STT → transcript storage → wake phrase detection → AI request queue → Claude response generation → ElevenLabs TTS → audio played into meeting.
 
-```
-Participant Speech → Daily.co WebRTC Stream → Audio Track Routing → Deepgram Streaming STT → Transcript Storage → Wake Word Detection → AI Request Queue → Claude Response Generation → ElevenLabs TTS → Audio Played into Meeting
-```
+**Audio Feedback Loop Prevention**: AI audio tracks are tagged with an AI source identifier and excluded from the STT pipeline to prevent self-transcription.
 
----
+**Post-Meeting Processing Pipeline**: Meeting end event → transcript retrieval → summary generation → decision & action extraction → timeline generation → transcript chunking → embedding generation → vector index storage.
 
-## 4.3 Audio Feedback Loop Prevention
+**Question Answering Pipeline (RAG)**: User question → embedding generation → vector search → relevant transcript chunks → LLM response generation → answer with source attribution.
 
-```
-AI Audio Track → Tagged as AI source → Excluded from STT pipeline
-```
+## 4.3 Event Bus
 
----
-
-## 4.4 Post-Meeting Processing Pipeline
-
-```
-Meeting End Event → Transcript Retrieval → Summary Generation → Decision Extraction → Timeline Generation → Transcript Chunking → Embedding Generation → Vector Index Storage
-```
-
----
-
-## 4.5 Question Answering Pipeline
-
-```
-User Question → Embedding Generation → Vector Search → Relevant Transcript Chunks → LLM Response Generation → Answer with Source Attribution
-```
-
----
-
-## 4.6 Event Bus Layer
-
-Real-time events are managed through Redis Pub/Sub.
-
-Event types:
-
-- audio stream events
-- wake word detection events
-- AI state change events
-- AI response events
-- meeting lifecycle events (start, end)
-- error events
+Real-time events are managed through Redis Pub/Sub. Event types include: audio stream events, wake word events, AI state change events, AI response events, meeting lifecycle events, and error events.
 
 ---
 
