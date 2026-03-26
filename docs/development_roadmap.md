@@ -4,12 +4,12 @@
 
 ### Day 1 — Project Setup
 
-- [ ] Monorepo structure: `/frontend`, `/backend`, `/docker`
-- [ ] FastAPI backend scaffold with health endpoint + CORS
-- [ ] MongoDB connection utility with environment config
-- [ ] React frontend scaffold (Vite + React + React Router)
-- [ ] Docker Compose: `frontend`, `backend`, `mongodb`, `redis`
-- [ ] Verify end-to-end: frontend → backend health check → MongoDB ping through Docker
+- [x] Monorepo structure: `/frontend`, `/backend`, `/docs`
+- [x] FastAPI backend scaffold with health endpoint + CORS
+- [x] MongoDB connection utility with environment config
+- [x] React + TypeScript frontend scaffold (Vite 8 + React Router)
+- [x] Docker Compose: `frontend`, `backend`, `mongodb`, `redis`
+- [x] Verify end-to-end: frontend → backend health check → MongoDB ping through Docker
 
 > [!NOTE]
 > Redis is included now even though it won't be used until the real-time event bus (Day 8+). Zero cost to include, saves setup time later.
