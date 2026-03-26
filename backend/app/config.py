@@ -18,10 +18,13 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
-    # JWT (Day 2)
+    # JWT
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 60
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
 
     model_config = {
         "env_file": ".env",

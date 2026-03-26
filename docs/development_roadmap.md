@@ -18,13 +18,13 @@
 
 ### Day 2 — Authentication
 
-- [ ] User data model in MongoDB
-- [ ] `POST /auth/register` — email/password registration
-- [ ] `POST /auth/login` — JWT token issuance
-- [ ] `POST /auth/google` — Google OAuth flow
-- [ ] Protected route middleware (JWT verification)
-- [ ] Frontend: login/register pages, auth context, token storage
-- [ ] Route guards on frontend
+- [x] User data model in MongoDB
+- [x] `POST /auth/register` — email/password registration
+- [x] `POST /auth/login` — JWT token issuance
+- [x] `POST /auth/google` — Google OAuth flow
+- [x] Protected route middleware (JWT verification)
+- [x] Frontend: login/register pages, auth context, token storage
+- [x] Route guards on frontend
 
 ---
 
