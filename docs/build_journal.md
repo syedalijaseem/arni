@@ -69,3 +69,43 @@ A daily devlog tracking decisions, progress, and lessons learned.
 - Verified smooth toggling between Dark and Light mode.
 
 ---
+
+## Day 3 — Meeting Creation
+**Date:** 2026-03-26
+
+### What was built
+- Meeting data model (Pydantic schemas: MeetingCreate, MeetingResponse, MeetingListResponse)
+- Meeting state enum (Created, Active, Ended, Processed)
+- `POST /meetings/create` — creates meeting room with auto-generated invite code and shareable link
+- `GET /meetings` — lists all meetings where user is a participant
+- `GET /meetings/{id}` — fetches meeting details with access control (participants only)
+- `DELETE /meetings/{id}` — deletes meeting (host only)
+- Frontend Dashboard with:
+  - Meeting list (responsive grid, 3 columns on desktop)
+  - Create meeting dialog with title input
+  - Success state showing invite link with copy button
+  - Meeting cards displaying title, state, creation date, participant count
+  - Delete meeting confirmation
+  - Empty state for no meetings
+
+### Tech decisions
+- **Auto-generated invite codes** — 8-character URL-safe token using `secrets.token_urlsafe(6)[:8]`
+- **Participant tracking** — host is automatically added to `participant_ids` on creation
+- **Access control** — `GET /meetings/{id}` verifies user is in participant list before returning data
+- **Two-step dialog flow** — Create form → Success screen with invite link (prevents accidental dismissal before copying link)
+- **Meeting state colors** — Created (blue), Active (green), Ended (yellow), Processed (gray) for visual clarity
+- **Dialog component** — Manually created from @radix-ui/react-dialog (shadcn CLI had module issues)
+
+### Blockers & fixes
+- shadcn CLI failed with MODULE_NOT_FOUND for recast → manually installed @radix-ui/react-dialog and created dialog.tsx component
+
+### Verification
+- Backend API tests (curl):
+  - Register new user → JWT token received
+  - Create meeting "Team Standup" → meeting created with invite link `http://localhost:5173/meeting/c2Ws66Vb`
+  - List meetings → array with 1 meeting
+  - Get meeting by ID → full meeting details returned
+  - Delete meeting → HTTP 204 (No Content)
+- Frontend integration (pending browser verification)
+
+---

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # JWT
     JWT_SECRET: str = "change-me-in-production"

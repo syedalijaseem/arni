@@ -30,12 +30,12 @@
 
 ### Day 3 — Meeting CRUD
 
-- [ ] Meeting data model in MongoDB
-- [ ] `POST /meetings/create` — create room, generate invite link
-- [ ] `GET /meetings/{id}` — fetch meeting details
-- [ ] `DELETE /meetings/{id}` — delete meeting (owner only)
-- [ ] Frontend: create meeting flow, invite link copy/share
-- [ ] Basic dashboard page listing user's meetings
+- [x] Meeting data model in MongoDB
+- [x] `POST /meetings/create` — create room, generate invite link
+- [x] `GET /meetings/{id}` — fetch meeting details
+- [x] `DELETE /meetings/{id}` — delete meeting (owner only)
+- [x] Frontend: create meeting flow, invite link copy/share
+- [x] Basic dashboard page listing user's meetings
 
 ---
 
