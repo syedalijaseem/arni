@@ -30,6 +30,10 @@ class MeetingResponse(BaseModel):
     duration_seconds: Optional[int] = None
     created_at: datetime
 
+    # Daily.co room info
+    daily_room_name: Optional[str] = None
+    daily_room_url: Optional[str] = None
+
     # Post-meeting fields (populated later)
     summary: Optional[str] = None
     decisions: List[str] = []
@@ -42,9 +46,17 @@ class MeetingListResponse(BaseModel):
     id: str
     title: Optional[str]
     state: MeetingState
+    invite_code: str
     created_at: datetime
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
     duration_seconds: Optional[int]
     participant_count: int
     action_item_count: int
+
+
+class JoinMeetingResponse(BaseModel):
+    """Schema for join meeting response with Daily.co token."""
+    meeting: MeetingResponse
+    daily_token: str
+    daily_room_url: str

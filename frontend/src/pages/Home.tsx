@@ -1,27 +1,27 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { useAuth } from '@/context/AuthContext'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import ThemeToggle from '@/components/ThemeToggle'
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import ThemeToggle from "@/components/ThemeToggle";
 
 interface HealthData {
-  status: string
-  app: string
-  version: string
-  database: string
+  status: string;
+  app: string;
+  version: string;
+  database: string;
 }
 
 function Home() {
-  const { isAuthenticated } = useAuth()
-  const [health, setHealth] = useState<HealthData | null>(null)
+  const { isAuthenticated } = useAuth();
+  const [health, setHealth] = useState<HealthData | null>(null);
 
   useEffect(() => {
-    fetch('/api/health')
+    fetch("/api/health")
       .then((r) => r.json())
       .then(setHealth)
-      .catch(() => setHealth(null))
-  }, [])
+      .catch(() => setHealth(null));
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -31,17 +31,11 @@ function Home() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           {isAuthenticated ? (
-            <Button asChild>
-              <Link to="/dashboard">Dashboard</Link>
-            </Button>
+            <Link to="/dashboard" className={buttonVariants()}>Dashboard</Link>
           ) : (
             <>
-              <Button variant="ghost" asChild>
-                <Link to="/login">Sign in</Link>
-              </Button>
-              <Button asChild>
-                <Link to="/register">Get started</Link>
-              </Button>
+              <Link to="/login" className={buttonVariants({ variant: "ghost" })}>Sign in</Link>
+              <Link to="/register" className={buttonVariants()}>Get started</Link>
             </>
           )}
         </div>
@@ -54,8 +48,7 @@ function Home() {
         </div>
 
         <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-center max-w-3xl leading-[1.1]">
-          Meet{' '}
-          <span className="text-primary">Arni</span>
+          Meet <span className="text-primary">Arni</span>
         </h1>
 
         <p className="mt-4 text-lg text-muted-foreground text-center max-w-xl leading-relaxed">
@@ -65,17 +58,11 @@ function Home() {
 
         <div className="flex gap-3 mt-8">
           {isAuthenticated ? (
-            <Button size="lg" asChild>
-              <Link to="/dashboard">Go to Dashboard</Link>
-            </Button>
+            <Link to="/dashboard" className={buttonVariants({ size: "lg" })}>Go to Dashboard</Link>
           ) : (
             <>
-              <Button size="lg" asChild>
-                <Link to="/register">Get started free</Link>
-              </Button>
-              <Button size="lg" variant="outline" asChild>
-                <Link to="/login">Sign in</Link>
-              </Button>
+              <Link to="/register" className={buttonVariants({ size: "lg" })}>Get started free</Link>
+              <Link to="/login" className={buttonVariants({ size: "lg", variant: "outline" })}>Sign in</Link>
             </>
           )}
         </div>
@@ -98,19 +85,23 @@ function Home() {
                 <span>Database</span>
                 <span className="flex items-center gap-1.5 text-emerald-500">
                   <span className="size-1.5 rounded-full bg-emerald-500" />
-                  {health.database === 'connected' ? 'Connected' : 'Disconnected'}
+                  {health.database === "connected"
+                    ? "Connected"
+                    : "Disconnected"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span>Version</span>
-                <span className="font-mono text-muted-foreground">{health.version}</span>
+                <span className="font-mono text-muted-foreground">
+                  {health.version}
+                </span>
               </div>
             </CardContent>
           </Card>
         )}
       </main>
     </div>
-  )
+  );
 }
 
-export default Home
+export default Home;

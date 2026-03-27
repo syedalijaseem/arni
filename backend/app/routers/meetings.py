@@ -10,7 +10,14 @@ from app.models.meeting import (
     MeetingCreate,
     MeetingResponse,
     MeetingListResponse,
+    JoinMeetingResponse,
     MeetingState,
+)
+from app.utils.daily import (
+    create_room,
+    create_meeting_token,
+    delete_room,
+    DailyCoError,
 )
 
 router = APIRouter()
@@ -35,6 +42,8 @@ def _meeting_response(meeting: dict) -> MeetingResponse:
         ended_at=meeting.get("ended_at"),
         duration_seconds=meeting.get("duration_seconds"),
         created_at=meeting["created_at"],
+        daily_room_name=meeting.get("daily_room_name"),
+        daily_room_url=meeting.get("daily_room_url"),
         summary=meeting.get("summary"),
         decisions=meeting.get("decisions", []),
         action_item_ids=[str(aid) for aid in meeting.get("action_item_ids", [])],
@@ -47,13 +56,28 @@ async def create_meeting(
     data: MeetingCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    """Create a new meeting room."""
+    """Create a new meeting room with Daily.co integration."""
     db = get_database()
 
     # Generate unique invite code
     invite_code = _generate_invite_code()
-    # In production, use your actual domain
     invite_link = f"{settings.FRONTEND_URL}/meeting/{invite_code}"
+
+    # Create Daily.co room
+    daily_room_name = None
+    daily_room_url = None
+
+    if settings.DAILY_API_KEY:
+        try:
+            # Use invite code as room name for uniqueness
+            daily_room_data = await create_room(name=f"arni-{invite_code}")
+            daily_room_name = daily_room_data["name"]
+            daily_room_url = daily_room_data["url"]
+        except DailyCoError as e:
+            print(f"Warning: Failed to create Daily.co room: {e}")
+            # Continue without Daily.co - meeting can still be created
+    else:
+        print("Warning: DAILY_API_KEY not configured - meeting created without video room")
 
     # Create meeting document
     meeting_doc = {
@@ -63,6 +87,8 @@ async def create_meeting(
         "state": MeetingState.CREATED,
         "invite_code": invite_code,
         "invite_link": invite_link,
+        "daily_room_name": daily_room_name,
+        "daily_room_url": daily_room_url,
         "started_at": None,
         "ended_at": None,
         "duration_seconds": None,
@@ -141,6 +167,14 @@ async def delete_meeting(
             detail="Only the meeting host can delete this meeting",
         )
 
+    # Delete Daily.co room if it exists
+    if meeting.get("daily_room_name") and settings.DAILY_API_KEY:
+        try:
+            await delete_room(meeting["daily_room_name"])
+        except DailyCoError as e:
+            print(f"Warning: Failed to delete Daily.co room: {e}")
+            # Continue with meeting deletion
+
     # Delete the meeting
     await db.meetings.delete_one({"_id": ObjectId(meeting_id)})
 
@@ -151,6 +185,115 @@ async def delete_meeting(
     # This will be implemented in later phases
 
     return None
+
+
+@router.post("/{meeting_id}/join", response_model=JoinMeetingResponse)
+async def join_meeting(
+    meeting_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Join a meeting and get Daily.co token.
+
+    This endpoint:
+    - Adds the user to the participant list if not already there
+    - Generates a Daily.co meeting token for the user
+    - Transitions the meeting to Active state if this is the first join
+    """
+    db = get_database()
+
+    try:
+        meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid meeting ID",
+        )
+
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found",
+        )
+
+    # Check if meeting has ended
+    if meeting["state"] in [MeetingState.ENDED, MeetingState.PROCESSED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This meeting has ended",
+        )
+
+    # Add user to participants if not already there
+    user_oid = ObjectId(current_user["id"])
+    if user_oid not in meeting.get("participant_ids", []):
+        await db.meetings.update_one(
+            {"_id": ObjectId(meeting_id)},
+            {"$push": {"participant_ids": user_oid}}
+        )
+        meeting["participant_ids"].append(user_oid)
+
+    # Transition to Active if this is the first join and state is Created
+    if meeting["state"] == MeetingState.CREATED:
+        await db.meetings.update_one(
+            {"_id": ObjectId(meeting_id)},
+            {
+                "$set": {
+                    "state": MeetingState.ACTIVE,
+                    "started_at": datetime.now(timezone.utc),
+                }
+            }
+        )
+        meeting["state"] = MeetingState.ACTIVE
+        meeting["started_at"] = datetime.now(timezone.utc)
+
+    # Generate Daily.co token
+    if not meeting.get("daily_room_name"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Meeting room not configured (Daily.co room missing)",
+        )
+
+    try:
+        is_owner = str(meeting["host_id"]) == current_user["id"]
+        daily_token = await create_meeting_token(
+            room_name=meeting["daily_room_name"],
+            user_name=current_user["name"],
+            user_id=current_user["id"],
+            is_owner=is_owner,
+        )
+    except DailyCoError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate meeting token: {str(e)}",
+        )
+
+    return JoinMeetingResponse(
+        meeting=_meeting_response(meeting),
+        daily_token=daily_token,
+        daily_room_url=meeting["daily_room_url"],
+    )
+
+
+@router.get("/code/{invite_code}", response_model=MeetingResponse)
+async def get_meeting_by_code(
+    invite_code: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get meeting details by invite code.
+    Used to resolve an invite link to a meeting ID before joining.
+    """
+    db = get_database()
+
+    meeting = await db.meetings.find_one({"invite_code": invite_code})
+
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found",
+        )
+
+    return _meeting_response(meeting)
 
 
 @router.get("", response_model=list[MeetingListResponse])
@@ -177,6 +320,7 @@ async def list_meetings(
                 id=str(meeting["_id"]),
                 title=meeting.get("title"),
                 state=meeting["state"],
+                invite_code=meeting["invite_code"],
                 created_at=meeting["created_at"],
                 started_at=meeting.get("started_at"),
                 ended_at=meeting.get("ended_at"),

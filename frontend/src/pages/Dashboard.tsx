@@ -1,8 +1,9 @@
-import { useAuth } from '@/context/AuthContext'
-import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { useAuth } from "@/context/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -11,150 +12,155 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
-import ThemeToggle from '@/components/ThemeToggle'
-import { useState, useEffect } from 'react'
+} from "@/components/ui/dialog";
+import ThemeToggle from "@/components/ThemeToggle";
+import { useState, useEffect } from "react";
 
 interface Meeting {
-  id: string
-  title: string | null
-  state: string
-  created_at: string
-  started_at: string | null
-  ended_at: string | null
-  duration_seconds: number | null
-  participant_count: number
-  action_item_count: number
+  id: string;
+  title: string | null;
+  state: string;
+  invite_code: string;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  participant_count: number;
+  action_item_count: number;
 }
 
 interface MeetingDetail {
-  id: string
-  title: string | null
-  host_id: string
-  participant_ids: string[]
-  state: string
-  invite_link: string
-  started_at: string | null
-  ended_at: string | null
-  duration_seconds: number | null
-  created_at: string
-  summary: string | null
-  decisions: string[]
-  action_item_ids: string[]
-  timeline: any[]
+  id: string;
+  title: string | null;
+  host_id: string;
+  participant_ids: string[];
+  state: string;
+  invite_link: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  created_at: string;
+  summary: string | null;
+  decisions: string[];
+  action_item_ids: string[];
+  timeline: unknown[];
 }
 
 function Dashboard() {
-  const { user, token, logout } = useAuth()
-  const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [newMeetingTitle, setNewMeetingTitle] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
-  const [createdMeeting, setCreatedMeeting] = useState<MeetingDetail | null>(null)
-  const [copiedLink, setCopiedLink] = useState(false)
+  const { user, token, logout } = useAuth();
+  const navigate = useNavigate();
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newMeetingTitle, setNewMeetingTitle] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [createdMeeting, setCreatedMeeting] = useState<MeetingDetail | null>(
+    null,
+  );
+  const [copiedLink, setCopiedLink] = useState(false);
 
   useEffect(() => {
-    loadMeetings()
-  }, [])
+    loadMeetings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadMeetings() {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      const res = await fetch('/api/meetings', {
+      const res = await fetch("/api/meetings", {
         headers: { Authorization: `Bearer ${token}` },
-      })
+      });
       if (res.ok) {
-        const data = await res.json()
-        setMeetings(data)
+        const data = await res.json();
+        setMeetings(data);
       }
-    } catch (error) {
-      console.error('Failed to load meetings:', error)
+    } catch {
+      console.error("Failed to load meetings");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   async function handleCreateMeeting(e: React.FormEvent) {
-    e.preventDefault()
-    setIsCreating(true)
+    e.preventDefault();
+    setIsCreating(true);
 
     try {
-      const res = await fetch('/api/meetings/create', {
-        method: 'POST',
+      const res = await fetch("/api/meetings/create", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: newMeetingTitle || undefined,
         }),
-      })
+      });
 
       if (res.ok) {
-        const meeting: MeetingDetail = await res.json()
-        setCreatedMeeting(meeting)
-        setNewMeetingTitle('')
-        await loadMeetings()
+        const meeting: MeetingDetail = await res.json();
+        setCreatedMeeting(meeting);
+        setNewMeetingTitle("");
+        await loadMeetings();
       } else {
-        const error = await res.json()
-        alert(error.detail || 'Failed to create meeting')
+        const error = await res.json();
+        alert(error.detail || "Failed to create meeting");
       }
-    } catch (error) {
-      alert('Failed to create meeting')
+    } catch {
+      alert("Failed to create meeting");
     } finally {
-      setIsCreating(false)
+      setIsCreating(false);
     }
   }
 
   async function handleDeleteMeeting(meetingId: string) {
-    if (!confirm('Are you sure you want to delete this meeting?')) return
+    if (!confirm("Are you sure you want to delete this meeting?")) return;
 
     try {
       const res = await fetch(`/api/meetings/${meetingId}`, {
-        method: 'DELETE',
+        method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
-      })
+      });
 
       if (res.ok) {
-        await loadMeetings()
+        await loadMeetings();
       } else {
-        const error = await res.json()
-        alert(error.detail || 'Failed to delete meeting')
+        const error = await res.json();
+        alert(error.detail || "Failed to delete meeting");
       }
-    } catch (error) {
-      alert('Failed to delete meeting')
+    } catch {
+      alert("Failed to delete meeting");
     }
   }
 
   function copyInviteLink(link: string) {
-    navigator.clipboard.writeText(link)
-    setCopiedLink(true)
-    setTimeout(() => setCopiedLink(false), 2000)
+    navigator.clipboard.writeText(link);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   }
 
   function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   function getStateColor(state: string) {
     switch (state) {
-      case 'created':
-        return 'text-blue-500'
-      case 'active':
-        return 'text-green-500'
-      case 'ended':
-        return 'text-yellow-500'
-      case 'processed':
-        return 'text-gray-500'
+      case "created":
+        return "text-blue-500";
+      case "active":
+        return "text-green-500";
+      case "ended":
+        return "text-yellow-500";
+      case "processed":
+        return "text-gray-500";
       default:
-        return 'text-gray-400'
+        return "text-gray-400";
     }
   }
 
@@ -219,7 +225,7 @@ function Dashboard() {
                           Cancel
                         </Button>
                         <Button type="submit" disabled={isCreating}>
-                          {isCreating ? 'Creating...' : 'Create'}
+                          {isCreating ? "Creating..." : "Create"}
                         </Button>
                       </DialogFooter>
                     </form>
@@ -235,7 +241,9 @@ function Dashboard() {
                     <div className="space-y-4 py-4">
                       <div className="space-y-2">
                         <Label>Meeting Title</Label>
-                        <div className="font-medium">{createdMeeting.title}</div>
+                        <div className="font-medium">
+                          {createdMeeting.title}
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <Label>Invite Link</Label>
@@ -248,9 +256,11 @@ function Dashboard() {
                           <Button
                             type="button"
                             variant="outline"
-                            onClick={() => copyInviteLink(createdMeeting.invite_link)}
+                            onClick={() =>
+                              copyInviteLink(createdMeeting.invite_link)
+                            }
                           >
-                            {copiedLink ? 'Copied!' : 'Copy'}
+                            {copiedLink ? "Copied!" : "Copy"}
                           </Button>
                         </div>
                       </div>
@@ -258,8 +268,8 @@ function Dashboard() {
                     <DialogFooter>
                       <Button
                         onClick={() => {
-                          setCreatedMeeting(null)
-                          setIsCreateOpen(false)
+                          setCreatedMeeting(null);
+                          setIsCreateOpen(false);
                         }}
                       >
                         Done
@@ -287,13 +297,18 @@ function Dashboard() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {meetings.map((meeting) => (
-                <Card key={meeting.id} className="p-5 hover:shadow-md transition-shadow">
+                <Card
+                  key={meeting.id}
+                  className="p-5 hover:shadow-md transition-shadow"
+                >
                   <div className="space-y-3">
                     <div>
                       <h3 className="font-semibold text-lg truncate">
-                        {meeting.title || 'Untitled Meeting'}
+                        {meeting.title || "Untitled Meeting"}
                       </h3>
-                      <p className={`text-sm font-medium capitalize ${getStateColor(meeting.state)}`}>
+                      <p
+                        className={`text-sm font-medium capitalize ${getStateColor(meeting.state)}`}
+                      >
                         {meeting.state}
                       </p>
                     </div>
@@ -307,8 +322,15 @@ function Dashboard() {
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      <Button variant="outline" size="sm" className="flex-1">
-                        View
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() =>
+                          navigate(`/meeting/${meeting.invite_code}`)
+                        }
+                      >
+                        Join
                       </Button>
                       <Button
                         variant="destructive"
@@ -326,7 +348,7 @@ function Dashboard() {
         </div>
       </main>
     </div>
-  )
+  );
 }
 
-export default Dashboard
+export default Dashboard;

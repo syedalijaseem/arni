@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Google OAuth
     GOOGLE_CLIENT_ID: str = ""
 
+    # Daily.co
+    DAILY_API_KEY: str = ""
+    DAILY_API_URL: str = "https://api.daily.co/v1"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

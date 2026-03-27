@@ -1,0 +1,325 @@
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import DailyIframe from "@daily-co/daily-js";
+import {
+  DailyProvider,
+  useDaily,
+  useParticipantIds,
+  useDailyEvent,
+  DailyVideo,
+  DailyAudio,
+  useParticipant,
+} from "@daily-co/daily-react";
+
+interface Meeting {
+  id: string;
+  title: string | null;
+  state: string;
+  daily_room_name: string | null;
+  daily_room_url: string | null;
+}
+
+interface JoinResponse {
+  meeting: Meeting;
+  daily_token: string;
+  daily_room_url: string;
+}
+
+function MeetingRoomContent() {
+  const { inviteCode } = useParams<{ inviteCode: string }>();
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const daily = useDaily();
+  const participantIds = useParticipantIds();
+
+  const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isJoining, setIsJoining] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+
+  // Handle call state changes
+  useDailyEvent("joined-meeting", () => {
+    console.log("Joined meeting successfully");
+    setIsJoining(false);
+  });
+
+  useDailyEvent("left-meeting", () => {
+    console.log("Left meeting");
+    navigate("/dashboard");
+  });
+
+  useDailyEvent("error", (event) => {
+    console.error("Daily error:", event);
+    setError("An error occurred during the call");
+  });
+
+  useEffect(() => {
+    loadMeetingAndJoin();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteCode]);
+
+  async function loadMeetingAndJoin() {
+    if (!inviteCode || !token) return;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Step 1: Get meeting by invite code
+      const meetingRes = await fetch(`/api/meetings/code/${inviteCode}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!meetingRes.ok) {
+        throw new Error("Meeting not found");
+      }
+
+      const meetingData: Meeting = await meetingRes.json();
+      setMeeting(meetingData);
+
+      // Check if Daily.co is configured
+      if (!meetingData.daily_room_url) {
+        setError(
+          "This meeting does not have video calling enabled. Daily.co API key is not configured.",
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Step 2: Join the meeting to get Daily.co token
+      setIsJoining(true);
+      const joinRes = await fetch(`/api/meetings/${meetingData.id}/join`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!joinRes.ok) {
+        const errorData = await joinRes.json();
+        throw new Error(errorData.detail || "Failed to join meeting");
+      }
+
+      const joinData: JoinResponse = await joinRes.json();
+
+      // Step 3: Join Daily.co call
+      if (daily) {
+        await daily.join({
+          url: joinData.daily_room_url,
+          token: joinData.daily_token,
+        });
+      }
+    } catch (err: unknown) {
+      console.error("Failed to join meeting:", err);
+      setError(err instanceof Error ? err.message : "Failed to join meeting");
+      setIsJoining(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function toggleMute() {
+    if (!daily) return;
+    const newMuted = !isMuted;
+    await daily.setLocalAudio(!newMuted);
+    setIsMuted(newMuted);
+  }
+
+  async function toggleCamera() {
+    if (!daily) return;
+    const newCameraOff = !isCameraOff;
+    await daily.setLocalVideo(!newCameraOff);
+    setIsCameraOff(newCameraOff);
+  }
+
+  async function leaveMeeting() {
+    if (daily) {
+      await daily.leave();
+    }
+    navigate("/dashboard");
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="p-12">
+          <div className="text-center space-y-4">
+            <div className="text-lg font-medium">Loading meeting...</div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="p-12 max-w-md">
+          <div className="text-center space-y-4">
+            <h2 className="text-xl font-semibold text-destructive">Error</h2>
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button onClick={() => navigate("/dashboard")}>
+              Back to Dashboard
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col bg-black">
+      {/* Header */}
+      <header className="bg-card border-b px-6 py-3 flex items-center justify-between">
+        <div>
+          <h1 className="font-semibold">
+            {meeting?.title || "Untitled Meeting"}
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            {participantIds.length} participant
+            {participantIds.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <Button variant="destructive" onClick={leaveMeeting} size="sm">
+          Leave Meeting
+        </Button>
+      </header>
+
+      {/* Video Grid */}
+      <main className="flex-1 p-4">
+        {isJoining ? (
+          <div className="h-full flex items-center justify-center">
+            <Card className="p-8">
+              <div className="text-center text-muted-foreground">
+                Joining meeting...
+              </div>
+            </Card>
+          </div>
+        ) : (
+          <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {participantIds.length === 0 ? (
+              <Card className="p-12 col-span-full">
+                <div className="text-center text-muted-foreground">
+                  Waiting for participants to join...
+                </div>
+              </Card>
+            ) : (
+              participantIds.map((participantId) => (
+                <ParticipantTile
+                  key={participantId}
+                  participantId={participantId}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Controls */}
+      <footer className="bg-card border-t px-6 py-4">
+        <div className="flex items-center justify-center gap-3">
+          <Button
+            variant={isMuted ? "destructive" : "secondary"}
+            onClick={toggleMute}
+          >
+            {isMuted ? "Unmute" : "Mute"}
+          </Button>
+          <Button
+            variant={isCameraOff ? "destructive" : "secondary"}
+            onClick={toggleCamera}
+          >
+            {isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
+          </Button>
+        </div>
+      </footer>
+      <DailyAudio />
+    </div>
+  );
+}
+
+interface ParticipantTileProps {
+  participantId: string;
+}
+
+function ParticipantTile({ participantId }: ParticipantTileProps) {
+  const participant = useParticipant(participantId);
+
+  if (!participant) {
+    return (
+      <Card className="relative aspect-video bg-gray-900 overflow-hidden flex items-center justify-center">
+        <span className="text-sm text-gray-500 animate-pulse">Loading participant...</span>
+      </Card>
+    );
+  }
+
+  const videoTrack = participant.tracks?.video;
+  const audioTrack = participant.tracks?.audio;
+  const isLocal = participant.local;
+
+  return (
+    <Card className="relative aspect-video bg-gray-900 overflow-hidden">
+      {/* Video element */}
+      {videoTrack?.state === "playable" ? (
+        <DailyVideo
+          sessionId={participantId}
+          type="video"
+          mirror={isLocal}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-gray-800">
+          <div className="text-4xl font-bold text-gray-600">
+            {participant.user_name?.[0]?.toUpperCase() || "?"}
+          </div>
+        </div>
+      )}
+
+      {/* Name badge */}
+      <div className="absolute bottom-2 left-2 bg-black/70 px-3 py-1 rounded text-sm text-white">
+        {participant.user_name || "Guest"} {isLocal && "(You)"}
+      </div>
+
+      {/* Audio indicator */}
+      {audioTrack?.state === "off" && (
+        <div className="absolute top-2 right-2 bg-red-500 px-2 py-1 rounded text-xs text-white">
+          Muted
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export default function MeetingRoom() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [callObject, setCallObject] = useState<any>(null);
+
+  useEffect(() => {
+    const daily = DailyIframe.createCallObject({
+      audioSource: true,
+      videoSource: true,
+    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCallObject(daily);
+
+    return () => {
+      daily.destroy();
+    };
+  }, []);
+
+  if (!callObject) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-muted-foreground">Initializing...</div>
+      </div>
+    );
+  }
+
+  return (
+    <DailyProvider callObject={callObject}>
+      <MeetingRoomContent />
+    </DailyProvider>
+  );
+}

@@ -109,3 +109,74 @@ A daily devlog tracking decisions, progress, and lessons learned.
 - Frontend integration (pending browser verification)
 
 ---
+
+## Day 4 — Daily.co Integration
+**Date:** 2026-03-26
+
+### What was built
+- Daily.co service utility (`backend/app/utils/daily.py`):
+  - `create_room()` — creates Daily.co rooms via API
+  - `create_meeting_token()` — generates participant tokens with user metadata
+  - `delete_room()` — cleanup on meeting deletion
+  - `get_room()` — room status queries
+  - DailyCoError exception for graceful error handling
+- Backend meeting enhancements:
+  - Updated Meeting model with `daily_room_name` and `daily_room_url` fields
+  - `POST /meetings/create` now creates Daily.co room alongside meeting
+  - `POST /meetings/{id}/join` — adds user to participants, transitions meeting to Active state, generates Daily.co token
+  - `GET /meetings/code/{invite_code}` — resolve invite link to meeting
+  - `DELETE /meetings/{id}` now also deletes Daily.co room
+  - JoinMeetingResponse schema with token and room URL
+- Frontend Meeting Room page:
+  - Full Daily.co integration using `@daily-co/daily-react`
+  - DailyProvider wrapper with call object management
+  - Meeting join flow: resolve invite code → join meeting → get token → join Daily.co call
+  - Responsive video grid (1/2/3 columns based on screen size)
+  - ParticipantTile component with:
+    - Video track rendering (or avatar fallback)
+    - Audio mute indicator
+    - Name badge with local user indicator
+  - Meeting controls: Mute/Unmute, Camera On/Off, Leave Meeting
+  - Real-time participant count in header
+  - Proper error states (meeting not found, Daily.co not configured, join failures)
+  - Auto-redirect to dashboard on leave
+- Dashboard enhancements:
+  - "Join" button navigates to `/meeting/:inviteCode`
+  - Meeting list includes `invite_code` field
+
+### Tech decisions
+- **Graceful Daily.co degradation** — meetings can be created without Daily.co API key; error shown when attempting to join
+- **Room naming convention** — `arni-{invite_code}` for uniqueness and easy debugging
+- **Token-based access** — Daily.co tokens include user_name, user_id, and is_owner flag (host can record/manage room)
+- **DailyProvider pattern** — call object created once at component mount, shared via React context
+- **State transitions** — meeting moves from Created → Active on first participant join (per SRS FR-003)
+- **Participant tracking** — users auto-added to participant_ids on join
+- **Video grid layout** — responsive: 1 column (mobile), 2 columns (tablet), 3 columns (desktop)
+- **Local audio muting in video** — prevents echo from local participant's video element
+
+### Blockers & fixes
+- None — integration went smoothly
+
+### Verification
+- Backend API tests (curl):
+  - Create meeting → `daily_room_name: null` (expected without API key)
+  - Get meeting by invite code → meeting data returned
+  - Join meeting → returns 500 "Meeting room not configured" (expected without Daily.co)
+- Frontend (requires Daily.co API key for full test):
+  - Meeting Room route registered at `/meeting/:inviteCode`
+  - ParticipantTile renders video or avatar fallback
+  - Controls wired up to Daily.co SDK methods
+
+### Next steps
+To fully test Day 4 features:
+1. Sign up for Daily.co account (free tier: https://www.daily.co/)
+2. Create API key from Daily.co dashboard
+3. Add to `backend/.env`: `DAILY_API_KEY=your_key_here`
+4. Restart backend: `docker compose restart backend`
+5. Create meeting → verify `daily_room_url` is populated
+6. Open meeting link in 2 browser windows → verify video/audio works
+
+### Deferred features
+- **Arni bot participant** — deferred to Day 5 (requires Daily.co bot SDK for backend audio streaming, will be implemented alongside Deepgram transcription)
+
+---

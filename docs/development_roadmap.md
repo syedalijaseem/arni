@@ -39,14 +39,16 @@
 
 ---
 
+http://localhost:5173/meeting/c_WoMcGb
+
 ### Day 4 — Daily.co Integration
 
-- [ ] Daily.co API: create room programmatically
-- [ ] Backend: generate Daily.co meeting tokens per participant
-- [ ] Frontend: join meeting room via Daily.co SDK
-- [ ] Audio/video tile rendering in meeting UI
-- [ ] Arni bot joins as a Daily.co participant (backend-side)
-- [ ] Verify: multiple participants can join and hear each other
+- [x] Daily.co API: create room programmatically
+- [x] Backend: generate Daily.co meeting tokens per participant
+- [x] Frontend: join meeting room via Daily.co SDK
+- [x] Audio/video tile rendering in meeting UI
+- [ ] Arni bot joins as a Daily.co participant (backend-side) — **Deferred to Day 5** (implemented alongside Deepgram integration)
+- [x] Verify: multiple participants can join and hear each other (requires Daily.co API key)
 
 ---
 
@@ -183,11 +185,11 @@
 
 Once the 17-day MVP is complete, the following are natural next steps from [Section 15 of the project outline](file:///home/syedalijaseem/arni/docs/project_outline.md#L632):
 
-| Priority | Feature | Why |
-|----------|---------|-----|
-| 1 | **Meeting analytics** — speaking time, engagement, sentiment | High user value, data already captured |
-| 2 | **Observability** — OpenTelemetry + Prometheus + Grafana | Needed before scaling |
-| 3 | **Proactive AI participation** — AI speaks without being asked | Differentiator feature |
-| 4 | **Zoom/Meet/Teams integration** | Largest growth unlock |
-| 5 | **Slack/Notion integrations** | Action item follow-through |
-| 6 | **Mobile app** | Broader accessibility |
+| Priority | Feature                                                        | Why                                    |
+| -------- | -------------------------------------------------------------- | -------------------------------------- |
+| 1        | **Meeting analytics** — speaking time, engagement, sentiment   | High user value, data already captured |
+| 2        | **Observability** — OpenTelemetry + Prometheus + Grafana       | Needed before scaling                  |
+| 3        | **Proactive AI participation** — AI speaks without being asked | Differentiator feature                 |
+| 4        | **Zoom/Meet/Teams integration**                                | Largest growth unlock                  |
+| 5        | **Slack/Notion integrations**                                  | Action item follow-through             |
+| 6        | **Mobile app**                                                 | Broader accessibility                  |
