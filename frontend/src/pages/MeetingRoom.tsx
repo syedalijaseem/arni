@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,14 @@ interface Transcript {
   timestamp: string;
 }
 
+interface WakeWordEvent {
+  type: "wake_word";
+  speaker_id: string;
+  speaker_name: string;
+  command: string;
+  timestamp: number;
+}
+
 function MeetingRoomContent() {
   const { inviteCode } = useParams<{ inviteCode: string }>();
   const { token } = useAuth();
@@ -53,6 +61,8 @@ function MeetingRoomContent() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [interimTranscripts, setInterimTranscripts] = useState<Record<string, { text: string; speaker_name: string }>>({});
+  const [wakeWordEvent, setWakeWordEvent] = useState<WakeWordEvent | null>(null);
+  const wakeWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!meeting?.id) return;
@@ -64,9 +74,25 @@ function MeetingRoomContent() {
 
     ws.onmessage = (event) => {
       try {
-        const data: Transcript = JSON.parse(event.data);
+        const data = JSON.parse(event.data);
+
+        // Handle wake word events
+        if (data.type === "wake_word") {
+          setWakeWordEvent(data as WakeWordEvent);
+          // Clear any existing timer
+          if (wakeWordTimerRef.current) {
+            clearTimeout(wakeWordTimerRef.current);
+          }
+          // Auto-dismiss after 3 seconds
+          wakeWordTimerRef.current = setTimeout(() => {
+            setWakeWordEvent(null);
+          }, 3000);
+          return;
+        }
+
+        // Handle transcript events
         if (data.is_final) {
-          setTranscripts((prev) => [...prev, data]);
+          setTranscripts((prev) => [...prev, data as Transcript]);
           setInterimTranscripts((prev) => {
             const next = { ...prev };
             delete next[data.speaker_id];
@@ -85,6 +111,9 @@ function MeetingRoomContent() {
 
     return () => {
       ws.close();
+      if (wakeWordTimerRef.current) {
+        clearTimeout(wakeWordTimerRef.current);
+      }
     };
   }, [meeting?.id]);
 
@@ -266,9 +295,27 @@ function MeetingRoomContent() {
 
         {/* Live Transcript Panel */}
         <Card className="w-80 bg-gray-950 border-gray-800 hidden lg:flex flex-col">
-          <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm">
-            Live Transcript
+          <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm flex items-center justify-between">
+            <span>Live Transcript</span>
+            {wakeWordEvent && (
+              <span className="text-xs text-emerald-400 animate-pulse">● Triggered</span>
+            )}
           </div>
+
+          {/* Wake word indicator */}
+          {wakeWordEvent && (
+            <div className="mx-3 mt-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex items-center gap-2 text-sm font-medium text-emerald-400">
+                <span className="text-lg">🤖</span>
+                <span>Arni heard you!</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1 pl-7">
+                <span className="text-gray-500">{wakeWordEvent.speaker_name}:</span>{" "}
+                "{wakeWordEvent.command}"
+              </p>
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {transcripts.map((t, i) => (
               <div key={i} className="text-sm">

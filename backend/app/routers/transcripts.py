@@ -5,6 +5,7 @@ from bson import ObjectId
 
 from app.database import get_database
 from app.models.transcript import TranscriptCreate
+from app.bot.wake_word import WakeWordResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -52,6 +53,26 @@ async def handle_bot_transcript(transcript: TranscriptCreate):
     
     # Broadcast to all connected clients
     await manager.broadcast(transcript.meeting_id, transcript.model_dump(mode="json"))
+
+
+async def handle_wake_word(meeting_id: str, result: WakeWordResult):
+    """Callback for ArniBot when a wake word is detected."""
+    logger.info(
+        f"Wake word triggered in meeting {meeting_id} by {result.speaker_name}: "
+        f"{result.command!r}"
+    )
+
+    # Broadcast wake_word event to frontend
+    await manager.broadcast(meeting_id, {
+        "type": "wake_word",
+        "speaker_id": result.speaker_id,
+        "speaker_name": result.speaker_name,
+        "command": result.command,
+        "timestamp": result.timestamp,
+    })
+
+    # TODO (Day 7): Trigger AI response pipeline here
+    # e.g. await ai_pipeline.process(meeting_id, result.command, result.speaker_name)
 
 
 @router.websocket("/{meeting_id}/ws")

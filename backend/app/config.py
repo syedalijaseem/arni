@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Deepgram
     DEEPGRAM_API_KEY: str = ""
 
+    # Wake Word Detection
+    WAKE_PHRASES: str = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
+    WAKE_COOLDOWN_SECONDS: int = 5
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

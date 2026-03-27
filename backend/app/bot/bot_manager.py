@@ -12,7 +12,7 @@ class BotManager:
         # meeting_id -> ArniBot instance
         self.active_bots: Dict[str, ArniBot] = {}
 
-    async def start_bot_for_meeting(self, meeting_id: str, room_url: str, broadcast_callback: Callable):
+    async def start_bot_for_meeting(self, meeting_id: str, room_url: str, broadcast_callback: Callable, wake_word_callback: Callable = None):
         if meeting_id in self.active_bots:
             logger.info(f"Bot already active for meeting {meeting_id}")
             return
@@ -25,7 +25,8 @@ class BotManager:
                 meeting_id=meeting_id,
                 room_url=room_url,
                 token=token,
-                broadcast_callback=broadcast_callback
+                broadcast_callback=broadcast_callback,
+                wake_word_callback=wake_word_callback,
             )
             
             self.active_bots[meeting_id] = bot

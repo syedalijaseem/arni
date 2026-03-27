@@ -13,6 +13,7 @@ from deepgram import (
 
 from app.config import get_settings
 from app.models.transcript import TranscriptCreate
+from app.bot.wake_word import WakeWordDetector
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +50,12 @@ class ArniEventHandler(daily.EventHandler):
         )
 
 class ArniBot:
-    def __init__(self, meeting_id: str, room_url: str, token: str, broadcast_callback):
+    def __init__(self, meeting_id: str, room_url: str, token: str, broadcast_callback, wake_word_callback=None):
         self.meeting_id = meeting_id
         self.room_url = room_url
         self.token = token
         self.broadcast_callback = broadcast_callback
+        self.wake_word_callback = wake_word_callback
         
         self.settings = get_settings()
         self.event_handler = ArniEventHandler(self)
@@ -69,8 +71,9 @@ class ArniBot:
         self.participant_id_to_name: Dict[str, str] = {}
         self.dg_connections: Dict[str, Any] = {}
         
+        self.wake_word_detector = WakeWordDetector()
+        
         self.loop = asyncio.get_running_loop()
-        pass
 
     async def _start_deepgram_for_participant(self, participant_id: str):
         try:
@@ -100,6 +103,19 @@ class ArniBot:
 
                 # Broadcast the transcript payload through the WebSocket manager
                 await self.broadcast_callback(payload)
+
+                # Feed final transcripts into wake word detector
+                if is_final and self.wake_word_callback:
+                    result = self.wake_word_detector.detect(
+                        text=transcript,
+                        speaker_id=speaker_id,
+                        speaker_name=speaker_name,
+                    )
+                    if result:
+                        await self.wake_word_callback(
+                            meeting_id=self.meeting_id,
+                            result=result,
+                        )
 
             dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
             

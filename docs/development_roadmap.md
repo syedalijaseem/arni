@@ -67,10 +67,10 @@ http://localhost:5173/meeting/c_WoMcGb
 
 ### Day 6 — Wake Word Detection
 
-- [ ] Detect "Hey Arni" + command in transcript stream
-- [ ] Parse command intent from wake phrase
-- [ ] Trigger AI request pipeline on detection
-- [ ] 10-second cooldown between triggers (rate limiting)
+- [x] Detect "Hey Arni" + command in transcript stream
+- [x] Parse command intent from wake phrase
+- [x] Trigger AI request pipeline on detection
+- [x] 10-second cooldown between triggers (rate limiting)
 
 ---
 

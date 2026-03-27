@@ -20,7 +20,7 @@ from app.utils.daily import (
     DailyCoError,
 )
 from app.bot.bot_manager import bot_manager
-from app.routers.transcripts import handle_bot_transcript
+from app.routers.transcripts import handle_bot_transcript, handle_wake_word
 
 router = APIRouter()
 settings = get_settings()
@@ -253,7 +253,8 @@ async def join_meeting(
         asyncio.create_task(bot_manager.start_bot_for_meeting(
             meeting_id=meeting_id,
             room_url=meeting["daily_room_url"],
-            broadcast_callback=handle_bot_transcript
+            broadcast_callback=handle_bot_transcript,
+            wake_word_callback=handle_wake_word,
         ))
 
     # Generate Daily.co token
