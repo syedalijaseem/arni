@@ -47,19 +47,19 @@ http://localhost:5173/meeting/c_WoMcGb
 - [x] Backend: generate Daily.co meeting tokens per participant
 - [x] Frontend: join meeting room via Daily.co SDK
 - [x] Audio/video tile rendering in meeting UI
-- [ ] Arni bot joins as a Daily.co participant (backend-side) — **Deferred to Day 5** (implemented alongside Deepgram integration)
+- [x] Arni bot joins as a Daily.co participant (backend-side) — **Deferred to Day 5** (implemented alongside Deepgram integration)
 - [x] Verify: multiple participants can join and hear each other (requires Daily.co API key)
 
 ---
 
 ### Day 5 — Real-Time Transcription
 
-- [ ] Deepgram streaming SDK integration on backend
-- [ ] Route participant audio tracks → Deepgram per-track
-- [ ] Speaker labeling via Daily.co track ID → user mapping
-- [ ] Transcript storage in MongoDB (speaker_id, timestamp, text)
-- [ ] WebSocket: stream live transcript to frontend
-- [ ] Frontend: live transcript panel in meeting room UI
+- [x] Deepgram streaming SDK integration on backend
+- [x] Route participant audio tracks → Deepgram per-track
+- [x] Speaker labeling via Daily.co track ID → user mapping
+- [x] Transcript storage in MongoDB (speaker_id, timestamp, text)
+- [x] WebSocket: stream live transcript to frontend
+- [x] Frontend: live transcript panel in meeting room UI
 
 ---
 

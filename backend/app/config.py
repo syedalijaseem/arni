@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Daily.co
     DAILY_API_KEY: str = ""
     DAILY_API_URL: str = "https://api.daily.co/v1"
+    
+    # Deepgram
+    DEEPGRAM_API_KEY: str = ""
 
     model_config = {
         "env_file": ".env",

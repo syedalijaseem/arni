@@ -6,6 +6,8 @@ from app.config import get_settings
 from app.database import connect_to_mongo, close_mongo_connection, get_database
 from app.routers.auth import router as auth_router
 from app.routers.meetings import router as meetings_router
+from app.routers.transcripts import router as transcripts_router
+import daily
 
 settings = get_settings()
 
@@ -13,6 +15,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
+    daily.Daily.init()
     await connect_to_mongo()
     yield
     await close_mongo_connection()
@@ -36,6 +39,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
+app.include_router(transcripts_router, prefix="/transcripts", tags=["transcripts"])
 
 
 @app.get("/health")

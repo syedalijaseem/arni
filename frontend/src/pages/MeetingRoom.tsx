@@ -28,6 +28,16 @@ interface JoinResponse {
   daily_room_url: string;
 }
 
+interface Transcript {
+  id?: string;
+  meeting_id: string;
+  speaker_id: string;
+  speaker_name?: string;
+  text: string;
+  is_final: boolean;
+  timestamp: string;
+}
+
 function MeetingRoomContent() {
   const { inviteCode } = useParams<{ inviteCode: string }>();
   const { token } = useAuth();
@@ -41,6 +51,42 @@ function MeetingRoomContent() {
   const [isJoining, setIsJoining] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  const [interimTranscripts, setInterimTranscripts] = useState<Record<string, { text: string; speaker_name: string }>>({});
+
+  useEffect(() => {
+    if (!meeting?.id) return;
+
+    // TODO: configure environment API URL instead of hardcoding localhost if moving to prod
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//localhost:8000/transcripts/${meeting.id}/ws`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (event) => {
+      try {
+        const data: Transcript = JSON.parse(event.data);
+        if (data.is_final) {
+          setTranscripts((prev) => [...prev, data]);
+          setInterimTranscripts((prev) => {
+            const next = { ...prev };
+            delete next[data.speaker_id];
+            return next;
+          });
+        } else {
+          setInterimTranscripts((prev) => ({
+            ...prev,
+            [data.speaker_id]: { text: data.text, speaker_name: data.speaker_name || data.speaker_id },
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to parse transcript message:", err);
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [meeting?.id]);
 
   // Handle call state changes
   useDailyEvent("joined-meeting", () => {
@@ -188,34 +234,59 @@ function MeetingRoomContent() {
         </Button>
       </header>
 
-      {/* Video Grid */}
-      <main className="flex-1 p-4">
-        {isJoining ? (
-          <div className="h-full flex items-center justify-center">
-            <Card className="p-8">
-              <div className="text-center text-muted-foreground">
-                Joining meeting...
-              </div>
-            </Card>
-          </div>
-        ) : (
-          <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {participantIds.length === 0 ? (
-              <Card className="p-12 col-span-full">
+      <main className="flex-1 p-4 flex gap-4 overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          {isJoining ? (
+            <div className="h-full flex items-center justify-center">
+              <Card className="p-8">
                 <div className="text-center text-muted-foreground">
-                  Waiting for participants to join...
+                  Joining meeting...
                 </div>
               </Card>
-            ) : (
-              participantIds.map((participantId) => (
-                <ParticipantTile
-                  key={participantId}
-                  participantId={participantId}
-                />
-              ))
-            )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {participantIds.length === 0 ? (
+                <Card className="p-12 col-span-full">
+                  <div className="text-center text-muted-foreground">
+                    Waiting for participants to join...
+                  </div>
+                </Card>
+              ) : (
+                participantIds.map((participantId) => (
+                  <ParticipantTile
+                    key={participantId}
+                    participantId={participantId}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Live Transcript Panel */}
+        <Card className="w-80 bg-gray-950 border-gray-800 hidden lg:flex flex-col">
+          <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm">
+            Live Transcript
           </div>
-        )}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {transcripts.map((t, i) => (
+              <div key={i} className="text-sm">
+                <span className="font-semibold text-blue-400">
+                  {t.speaker_name || t.speaker_id}:{" "}
+                </span>
+                <span className="text-gray-300">{t.text}</span>
+              </div>
+            ))}
+
+            {Object.entries(interimTranscripts).map(([speakerId, { text, speaker_name }]) => (
+              <div key={`interim-${speakerId}`} className="text-sm italic opacity-70">
+                <span className="font-semibold text-blue-400">{speaker_name}: </span>
+                <span className="text-gray-300 animate-pulse">{text}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
       </main>
 
       {/* Controls */}

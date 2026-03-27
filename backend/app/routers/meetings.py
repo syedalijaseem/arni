@@ -19,6 +19,8 @@ from app.utils.daily import (
     delete_room,
     DailyCoError,
 )
+from app.bot.bot_manager import bot_manager
+from app.routers.transcripts import handle_bot_transcript
 
 router = APIRouter()
 settings = get_settings()
@@ -245,6 +247,14 @@ async def join_meeting(
         )
         meeting["state"] = MeetingState.ACTIVE
         meeting["started_at"] = datetime.now(timezone.utc)
+        
+        # Spin up Arni bot
+        import asyncio
+        asyncio.create_task(bot_manager.start_bot_for_meeting(
+            meeting_id=meeting_id,
+            room_url=meeting["daily_room_url"],
+            broadcast_callback=handle_bot_transcript
+        ))
 
     # Generate Daily.co token
     if not meeting.get("daily_room_name"):
