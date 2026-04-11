@@ -61,6 +61,54 @@ def _build_system_prompt(context: dict[str, Any]) -> str:
     return base
 
 
+async def ai_summarize(
+    meeting_id: str,
+    previous_summary: str,
+    turns: list[dict],
+) -> str:
+    """
+    Call Claude to produce an updated rolling meeting summary.
+
+    Args:
+        meeting_id: Used for logging only.
+        previous_summary: The last stored summary, or empty string.
+        turns: Recent transcript turns as [{speaker_name, text}].
+
+    Returns:
+        Updated summary text string, or FALLBACK_MESSAGE on error.
+    """
+    settings = get_settings()
+
+    if not settings.ANTHROPIC_API_KEY:
+        logger.error("ANTHROPIC_API_KEY not set — cannot summarize meeting=%s", meeting_id)
+        return FALLBACK_MESSAGE
+
+    turns_text = "\n".join(
+        f"{t.get('speaker_name', 'Participant')}: {t['text']}" for t in turns
+    )
+    prompt = (
+        "You are summarizing a business meeting in progress.\n"
+        f"Previous summary:\n{previous_summary or '(none)'}\n\n"
+        f"New transcript turns:\n{turns_text}\n\n"
+        "Write a concise updated meeting summary that includes the previous context "
+        "and the new information. Keep it under 200 words."
+    )
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        summary_text: str = message.content[0].text
+        logger.info("ai_summarize completed for meeting=%s, tokens=%d", meeting_id, message.usage.output_tokens)
+        return summary_text
+    except Exception as exc:
+        logger.error("ai_summarize error for meeting=%s: %s", meeting_id, exc)
+        return FALLBACK_MESSAGE
+
+
 async def ai_respond(
     meeting_id: str,
     command: str,

@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Meetings
     HOST_GRACE_PERIOD_MINUTES: int = 10
 
+    # Rolling Summary Scheduler
+    AUTO_SUMMARY_INTERVAL_MINUTES: int = 10
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

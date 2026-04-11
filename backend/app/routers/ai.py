@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.ai.context_manager import build_context
-from app.ai.ai_service import ai_respond
+from app.ai.ai_service import ai_respond, ai_summarize
 from app.ai.response_queue import get_or_create_queue, RATE_LIMIT_SENTINEL
+from app.database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,15 @@ class AIRespondRequest(BaseModel):
 class AIRespondResponse(BaseModel):
     response_text: str
     request_id: str | None = None
+
+
+class AISummarizeRequest(BaseModel):
+    meeting_id: str
+
+
+class AISummarizeResponse(BaseModel):
+    summary_text: str | None = None
+    skipped: bool = False
 
 
 @router.post("/respond", response_model=AIRespondResponse)
@@ -92,3 +102,60 @@ async def respond(body: AIRespondRequest) -> AIRespondResponse:
         response_text=result["response_text"],
         request_id=request_id,
     )
+
+
+@router.post("/summarize", response_model=AISummarizeResponse)
+async def summarize(body: AISummarizeRequest) -> AISummarizeResponse:
+    """
+    Generate a rolling meeting summary.
+
+    Steps:
+      1. Fetch all final transcript turns for the meeting.
+      2. If none exist: return skipped=True (no work to do).
+      3. Fetch the most recent stored summary (may be empty).
+      4. Call ai_summarize() to produce an updated summary.
+      5. Store the new MeetingSummary document in MongoDB.
+      6. Return the new summary text.
+    """
+    import datetime
+
+    db = get_database()
+
+    # Fetch all final transcripts for the meeting
+    cursor = db.transcripts.find(
+        {"meeting_id": body.meeting_id, "is_final": True}
+    ).sort("timestamp", 1)
+    turns = await cursor.to_list(length=None)
+
+    if not turns:
+        return AISummarizeResponse(skipped=True)
+
+    # Fetch the latest existing summary
+    summary_doc = await db.meeting_summaries.find_one(
+        {"meeting_id": body.meeting_id},
+        sort=[("updated_at", -1)],
+    )
+    previous_summary = summary_doc["summary_text"] if summary_doc else ""
+
+    # Build turns list for summarisation
+    turn_dicts = [
+        {
+            "speaker_name": t.get("speaker_name") or t.get("speaker_id", "Participant"),
+            "text": t["text"],
+        }
+        for t in turns
+    ]
+
+    summary_text = await ai_summarize(body.meeting_id, previous_summary, turn_dicts)
+
+    # Persist new summary
+    now = datetime.datetime.now(datetime.timezone.utc)
+    await db.meeting_summaries.insert_one({
+        "meeting_id": body.meeting_id,
+        "summary_text": summary_text,
+        "updated_at": now,
+    })
+
+    logger.info("Rolling summary stored for meeting=%s", body.meeting_id)
+
+    return AISummarizeResponse(summary_text=summary_text, skipped=False)
