@@ -30,7 +30,7 @@ FALLBACK_MESSAGE = (
 )
 
 CLAUDE_MODEL = "claude-sonnet-4-5"
-MAX_TOKENS = 512
+MAX_TOKENS = 150
 
 
 def _build_messages(command: str, context: dict[str, Any]) -> list[dict]:

@@ -14,7 +14,12 @@ def detector():
     """Create a WakeWordDetector with default settings."""
     with patch("app.bot.wake_word.get_settings") as mock_settings:
         settings = MagicMock()
-        settings.WAKE_PHRASES = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
+        settings.WAKE_PHRASES = (
+            "hey arni,hey arnie,hey ardy,hey ardie,hey r.d.,hey rd,hey r d,"
+            "hey ani,hey ernie,hey arnee,hey are knee,"
+            "arni,arnie,ardy,ardie,r.d.,rd,r d,ani,ernie,arnee,are knee,"
+            "harney,marni"
+        )
         settings.WAKE_COOLDOWN_SECONDS = 5
         mock_settings.return_value = settings
         return WakeWordDetector()
@@ -59,6 +64,31 @@ class TestWakeWordDetection:
         result = detector.detect("hey arnee help me with this", "user1", "Alice")
         assert result is not None
         assert result.command == "help me with this"
+
+    def test_variant_ardy(self, detector):
+        result = detector.detect("hey ardy what time is it", "user1", "Alice")
+        assert result is not None
+        assert result.command == "what time is it"
+
+    def test_variant_rd(self, detector):
+        result = detector.detect("hey rd summarize the meeting", "user1", "Alice")
+        assert result is not None
+        assert result.command == "summarize the meeting"
+
+    def test_variant_ani(self, detector):
+        result = detector.detect("ani what do you think", "user1", "Alice")
+        assert result is not None
+        assert result.command == "what do you think"
+
+    def test_variant_harney(self, detector):
+        result = detector.detect("harney tell me the status", "user1", "Alice")
+        assert result is not None
+        assert result.command == "tell me the status"
+
+    def test_variant_ardie_at_end(self, detector):
+        result = detector.detect("what is our revenue, ardie?", "user1", "Alice")
+        assert result is not None
+        assert result.command == "what is our revenue"
 
     def test_wake_phrase_mid_sentence(self, detector):
         """Wake phrase can appear anywhere — full utterance (minus wake phrase) is the command."""

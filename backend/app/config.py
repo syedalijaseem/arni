@@ -35,7 +35,12 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: str = ""
 
     # Wake Word Detection
-    WAKE_PHRASES: str = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
+    WAKE_PHRASES: str = (
+        "hey arni,hey arnie,hey ardy,hey ardie,hey r.d.,hey rd,hey r d,"
+        "hey ani,hey ernie,hey arnee,hey are knee,"
+        "arni,arnie,ardy,ardie,r.d.,rd,r d,ani,ernie,arnee,are knee,"
+        "harney,marni"
+    )
     WAKE_COOLDOWN_SECONDS: int = 5
     CONVERSATION_WINDOW_SECONDS: int = 30
 

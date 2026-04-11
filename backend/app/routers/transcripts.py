@@ -41,6 +41,10 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Per-meeting response task tracker — max queue depth of 1.
+# New requests cancel the in-flight task before starting.
+_active_response_tasks: Dict[str, asyncio.Task] = {}
+
 async def save_transcript_to_db(transcript: TranscriptCreate):
     db = get_database()
     doc = transcript.model_dump()
@@ -82,7 +86,20 @@ async def handle_wake_word(meeting_id: str, result: WakeWordResult):
         "timestamp": result.timestamp,
     })
 
-    asyncio.create_task(_trigger_ai_response(meeting_id, result))
+    # Cancel any in-flight response for this meeting (queue depth = 1)
+    prev = _active_response_tasks.pop(meeting_id, None)
+    if prev and not prev.done():
+        prev.cancel()
+        # Also signal the bot to stop TTS playback
+        from app.bot.bot_manager import bot_manager
+        bot = bot_manager.active_bots.get(meeting_id)
+        if bot:
+            bot._cancel_event.set()
+            bot._speaking = False
+        logger.info("Cancelled previous response task for meeting %s", meeting_id)
+
+    task = asyncio.create_task(_trigger_ai_response(meeting_id, result))
+    _active_response_tasks[meeting_id] = task
 
 
 async def _trigger_ai_response(meeting_id: str, result: WakeWordResult):
@@ -100,8 +117,12 @@ async def _trigger_ai_response(meeting_id: str, result: WakeWordResult):
             "triggered_by": result.speaker_name,
             "command": result.command,
         })
+    except asyncio.CancelledError:
+        logger.info("AI response task cancelled for meeting %s", meeting_id)
     except Exception as exc:
         logger.error("AI response pipeline failed for meeting %s: %s", meeting_id, exc)
+    finally:
+        _active_response_tasks.pop(meeting_id, None)
 
 
 @router.websocket("/{meeting_id}/ws")

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from typing import Dict, Any
 
@@ -99,6 +100,17 @@ class ArniBot:
         self._last_response_time: float = 0.0
         self._last_speaker_id: str = ""
 
+        # Speaking state: when True, discard all transcripts except stop phrases.
+        self._speaking = False
+        self._cancel_event = asyncio.Event()
+
+        # Stop phrases — checked BEFORE wake word detection.
+        self._stop_re = re.compile(
+            r"^(?:stop|stop arni|stop arnie|hey stop|cancel|nevermind|never mind"
+            r"|wait|hold on|pause)[\s.!?]*$",
+            re.IGNORECASE,
+        )
+
         self.loop = asyncio.get_running_loop()
 
     async def _start_deepgram_for_participant(self, participant_id: str):
@@ -135,6 +147,19 @@ class ArniBot:
                     return
 
                 if not is_final or not self.wake_word_callback:
+                    return
+
+                # --- Stop phrase check (highest priority, even while speaking) ---
+                if self._stop_re.match(transcript.strip()):
+                    if self._speaking:
+                        logger.info("Stop phrase detected from %s — cancelling speech", speaker_name)
+                        self._cancel_event.set()
+                        self._speaking = False
+                    return
+
+                # --- Transcript lockout: discard everything while speaking ---
+                if self._speaking:
+                    logger.debug("Discarding transcript while speaking: %r", transcript)
                     return
 
                 # 1. Try explicit wake word detection
@@ -218,11 +243,33 @@ class ArniBot:
             del self.dg_connections[participant_id]
 
     async def send_audio(self, audio_bytes: bytes) -> None:
-        """Write raw PCM frames to the virtual microphone so other participants hear Arni."""
+        """Write raw PCM frames to the virtual microphone so other participants hear Arni.
+
+        Splits audio into ~100ms chunks so that a stop command can interrupt
+        playback between chunks rather than waiting for the entire clip.
+        """
         if not audio_bytes:
             return
-        logger.info("send_audio: writing %d bytes to virtual mic for meeting %s", len(audio_bytes), self.meeting_id)
-        await self.loop.run_in_executor(None, self.virtual_mic.write_frames, audio_bytes)
+
+        self._speaking = True
+        self._cancel_event.clear()
+
+        # 16 kHz * 2 bytes/sample * 1 channel * 0.1 s = 3200 bytes per 100ms chunk
+        chunk_size = 3200
+        total = len(audio_bytes)
+        offset = 0
+
+        logger.info("send_audio: streaming %d bytes to virtual mic for meeting %s", total, self.meeting_id)
+        try:
+            while offset < total:
+                if self._cancel_event.is_set():
+                    logger.info("send_audio: cancelled at byte %d/%d", offset, total)
+                    break
+                chunk = audio_bytes[offset:offset + chunk_size]
+                await self.loop.run_in_executor(None, self.virtual_mic.write_frames, chunk)
+                offset += chunk_size
+        finally:
+            self._speaking = False
 
     async def join(self):
         logger.info(f"Arni Bot joining meeting {self.meeting_id}")
