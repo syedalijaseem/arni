@@ -72,4 +72,9 @@ Implement VAD-based interrupt handling (human speech during AI playback stops Ar
 
 ## Status
 
-pending
+complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->
