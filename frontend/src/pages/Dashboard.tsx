@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import ThemeToggle from "@/components/ThemeToggle";
+import { DocumentUpload } from "@/components/DocumentUpload";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 interface Meeting {
@@ -65,10 +66,9 @@ function Dashboard() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [createdMeeting, setCreatedMeeting] = useState<MeetingDetail | null>(
-    null,
-  );
+  const [createdMeeting, setCreatedMeeting] = useState<MeetingDetail | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [createStep, setCreateStep] = useState<"title" | "documents" | "done">("title");
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedQuery = useDebounce(searchQuery, 300);
   const abortRef = useRef<AbortController | null>(null);
@@ -129,6 +129,7 @@ function Dashboard() {
         const meeting: MeetingDetail = await res.json();
         setCreatedMeeting(meeting);
         setNewMeetingTitle("");
+        setCreateStep("documents");
         await loadMeetings(debouncedQuery);
       } else {
         const error = await res.json();
@@ -217,17 +218,20 @@ function Dashboard() {
               </p>
             </div>
 
-            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+            <Dialog open={isCreateOpen} onOpenChange={(open) => {
+              setIsCreateOpen(open);
+              if (!open) { setCreateStep("title"); setCreatedMeeting(null); }
+            }}>
               <DialogTrigger asChild>
                 <Button>Create Meeting</Button>
               </DialogTrigger>
               <DialogContent>
-                {!createdMeeting ? (
+                {createStep === "title" && (
                   <>
                     <DialogHeader>
                       <DialogTitle>Create New Meeting</DialogTitle>
                       <DialogDescription>
-                        Give your meeting a title. You can start it later.
+                        Step 1 of 2 — Give your meeting a title.
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleCreateMeeting}>
@@ -253,25 +257,53 @@ function Dashboard() {
                           Cancel
                         </Button>
                         <Button type="submit" disabled={isCreating}>
-                          {isCreating ? "Creating..." : "Create"}
+                          {isCreating ? "Creating..." : "Next"}
                         </Button>
                       </DialogFooter>
                     </form>
                   </>
-                ) : (
+                )}
+
+                {createStep === "documents" && createdMeeting && (
                   <>
                     <DialogHeader>
-                      <DialogTitle>Meeting Created!</DialogTitle>
+                      <DialogTitle>Upload Documents (Optional)</DialogTitle>
                       <DialogDescription>
-                        Share this link with participants to join the meeting.
+                        Step 2 of 2 — Upload documents for Arni to reference during the meeting.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                      <DocumentUpload
+                        meetingId={createdMeeting.id}
+                        token={token || ""}
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setCreateStep("done")}
+                      >
+                        Skip
+                      </Button>
+                      <Button onClick={() => setCreateStep("done")}>
+                        Done
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
+
+                {createStep === "done" && createdMeeting && (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Meeting Ready!</DialogTitle>
+                      <DialogDescription>
+                        Share this link with participants to join.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                       <div className="space-y-2">
                         <Label>Meeting Title</Label>
-                        <div className="font-medium">
-                          {createdMeeting.title}
-                        </div>
+                        <div className="font-medium">{createdMeeting.title}</div>
                       </div>
                       <div className="space-y-2">
                         <Label>Invite Link</Label>
@@ -284,9 +316,7 @@ function Dashboard() {
                           <Button
                             type="button"
                             variant="outline"
-                            onClick={() =>
-                              copyInviteLink(createdMeeting.invite_link)
-                            }
+                            onClick={() => copyInviteLink(createdMeeting.invite_link)}
                           >
                             {copiedLink ? "Copied!" : "Copy"}
                           </Button>
@@ -297,6 +327,7 @@ function Dashboard() {
                       <Button
                         onClick={() => {
                           setCreatedMeeting(null);
+                          setCreateStep("title");
                           setIsCreateOpen(false);
                         }}
                       >

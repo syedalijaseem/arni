@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DocumentUpload } from "@/components/DocumentUpload";
 import DailyIframe from "@daily-co/daily-js";
 import {
   DailyProvider,
@@ -98,8 +99,22 @@ function MeetingRoomContent() {
   const wakeWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [arniState, setArniState] = useState<ArniState>("listening");
   const [isRecordingPTT, setIsRecordingPTT] = useState(false);
+  const [isDocsOpen, setIsDocsOpen] = useState(false);
+  interface MeetingDoc { id: string; filename: string; status: string; chunk_count: number; file_size_bytes: number; }
+  const [meetingDocs, setMeetingDocs] = useState<MeetingDoc[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Load existing documents for this meeting
+  useEffect(() => {
+    if (!meeting?.id || !token) return;
+    fetch(`/api/meetings/${meeting.id}/documents`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((docs) => setMeetingDocs(docs))
+      .catch(() => {});
+  }, [meeting?.id, token]);
 
   useEffect(() => {
     if (!meeting?.id) return;
@@ -389,8 +404,43 @@ function MeetingRoomContent() {
           )}
         </div>
 
+        {/* Right sidebar: Documents + Transcript */}
+        <div className="w-80 hidden lg:flex flex-col gap-3">
+
+        {/* Document Panel */}
+        <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+          <button
+            className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+            onClick={() => setIsDocsOpen(!isDocsOpen)}
+          >
+            <span>Documents ({meetingDocs.length})</span>
+            <span className="text-xs text-gray-500">{isDocsOpen ? "Hide" : "Show"}</span>
+          </button>
+          {isDocsOpen && (
+            <div className="px-3 pb-3">
+              <DocumentUpload
+                meetingId={meeting?.id || ""}
+                token={token || ""}
+                onDocumentReady={(doc) => setMeetingDocs((prev) => [...prev, doc])}
+              />
+              {meetingDocs.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {meetingDocs.map((doc) => (
+                    <li key={doc.id} className="flex items-center justify-between text-xs text-gray-400 px-1">
+                      <span className="truncate">{doc.filename}</span>
+                      <span className={doc.status === "ready" ? "text-green-400" : "text-yellow-400"}>
+                        {doc.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </Card>
+
         {/* Live Transcript Panel */}
-        <Card className="w-80 bg-gray-950 border-gray-800 hidden lg:flex flex-col">
+        <Card className="bg-gray-950 border-gray-800 flex-1 flex flex-col min-h-0">
           <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm flex items-center justify-between">
             <span>Live Transcript</span>
             <div className="flex items-center gap-2">
@@ -433,6 +483,7 @@ function MeetingRoomContent() {
             ))}
           </div>
         </Card>
+        </div>{/* end right sidebar */}
       </main>
 
       {/* Controls */}
