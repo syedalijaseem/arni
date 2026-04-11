@@ -75,7 +75,7 @@ async def handle_wake_word(meeting_id: str, result: WakeWordResult):
         from app.ai.ai_service import ai_respond
         from app.ai.context_manager import build_context
 
-        context = await build_context(meeting_id)
+        context = await build_context(meeting_id, command=result.command)
         response = await ai_respond(meeting_id, result.command, context)
 
         await manager.broadcast(meeting_id, {

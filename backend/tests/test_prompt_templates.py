@@ -79,14 +79,19 @@ class TestAiRespondRouting:
         mock_message.content = [MagicMock(text="I recommend Option B.")]
         mock_message.usage = MagicMock(output_tokens=20)
 
-        with patch("app.ai.ai_service.build_reasoning_context", new_callable=AsyncMock, return_value=reasoning_ctx) as mock_rsn_ctx:
+        with patch("app.ai.context_manager._retrieve_document_context", new_callable=AsyncMock, return_value=""):
             with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock, return_value=None):
                 with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
                     mock_client_inst = MagicMock()
-                    mock_client_inst.messages.create = AsyncMock(return_value=mock_message)
+                    mock_stream = MagicMock()
+                    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
+                    mock_stream.__aexit__ = AsyncMock(return_value=False)
+                    async def _chunks():
+                        yield "I recommend Option B."
+                    mock_stream.text_stream = _chunks()
+                    mock_client_inst.messages.stream = MagicMock(return_value=mock_stream)
                     mock_anthropic_cls.return_value = mock_client_inst
 
-                    # Patch settings to provide API key
                     with patch("app.ai.ai_service.get_settings") as mock_settings:
                         mock_settings.return_value = MagicMock(
                             ANTHROPIC_API_KEY="test-key",
@@ -97,10 +102,10 @@ class TestAiRespondRouting:
                         result = await ai_respond(
                             meeting_id="meet-1",
                             command="which option is better for the backend?",
-                            context={},
+                            context=reasoning_ctx,
                         )
 
-        mock_rsn_ctx.assert_called_once()
+        assert result["response_text"] == "I recommend Option B."
 
     @pytest.mark.asyncio
     async def test_standard_command_does_not_use_reasoning_context(self):

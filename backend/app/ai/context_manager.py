@@ -2,12 +2,8 @@
 Context Manager for AI Response Generation.
 
 Builds the hybrid context payload for Claude: Arni's system persona,
-the latest rolling summary, and the last N transcript turns.
-
-Design:
-- Rolling summary is fetched from MongoDB (meeting_summaries collection).
-- Transcript turns are the most recent `window_size` final transcripts.
-- All fields are returned as a plain dict to avoid coupling to Pydantic.
+the latest rolling summary, recent transcript turns, and relevant
+document chunks via RAG.
 """
 
 import logging
@@ -27,22 +23,16 @@ ARNI_SYSTEM_PROMPT = (
 
 async def build_context(
     meeting_id: str,
+    command: str = "",
     window_size: int | None = None,
+    top_k_docs: int = 5,
 ) -> dict[str, Any]:
     """
-    Build the context payload for a single AI request.
+    Build the full context payload for a single AI request.
 
-    Args:
-        meeting_id: The meeting identifier.
-        window_size: How many recent transcript turns to include.
-                     Defaults to AI_CONTEXT_WINDOW from settings.
-
-    Returns:
-        {
-            "system":  str   — Arni system persona,
-            "summary": str   — latest rolling summary (empty string if none),
-            "turns":   list  — recent transcript turns [{speaker_name, text}],
-        }
+    Always includes document context via RAG retrieval when a command
+    is provided. This ensures Arni can reference uploaded documents
+    regardless of whether the question is classified as "reasoning".
     """
     settings = get_settings()
     if window_size is None:
@@ -59,16 +49,12 @@ async def build_context(
     if summary_doc and summary_doc.get("summary_text"):
         summary_text = summary_doc["summary_text"]
 
-    # Fetch last `window_size` final transcript turns
+    # Fetch last N final transcript turns
     cursor = db.transcripts.find(
         {"meeting_id": meeting_id, "is_final": True}
     ).sort("timestamp", -1)
     raw_turns = await cursor.to_list(length=window_size)
-
-    # Enforce window size defensively (mock/driver may not honour length param)
     raw_turns = raw_turns[:window_size]
-
-    # Reverse so they are chronological (oldest first)
     raw_turns.reverse()
 
     turns = [
@@ -79,19 +65,17 @@ async def build_context(
         for t in raw_turns
     ]
 
-    logger.debug(
-        "Context built for meeting=%s: summary_len=%d, turns=%d",
-        meeting_id,
-        len(summary_text),
-        len(turns),
-    )
+    # Fetch relevant document chunks via RAG retriever
+    document_context = ""
+    if command:
+        document_context = await _retrieve_document_context(meeting_id, command, top_k_docs)
 
     return {
         "system": ARNI_SYSTEM_PROMPT,
         "summary": summary_text,
         "turns": turns,
         "recent_turns": turns,
-        "document_context": "",
+        "document_context": document_context,
     }
 
 
@@ -101,49 +85,53 @@ async def build_reasoning_context(
     window_size: int | None = None,
     top_k_docs: int = 5,
 ) -> dict[str, Any]:
-    """
-    Build an enriched context payload for reasoning/recommendation requests.
-
-    Identical to build_context but additionally retrieves document chunks
-    relevant to `command` via a simple keyword search against document_chunks
-    (FR-088: RAG context included in reasoning).
-
-    Args:
-        meeting_id: The meeting identifier.
-        command: The user's wake-word command text (used for RAG retrieval).
-        window_size: How many recent transcript turns to include.
-        top_k_docs: Maximum number of document chunk excerpts to include.
-
-    Returns:
-        Same shape as build_context, plus:
-          "document_context": str — concatenated relevant document excerpts
-    """
-    base = await build_context(meeting_id, window_size=window_size)
-
-    db = get_database()
-
-    # Simple text-based RAG: fetch document chunks for this meeting
-    # A real implementation would do vector search; here we use $text or limit
-    doc_cursor = db.document_chunks.find({"meeting_id": meeting_id})
-    doc_chunks = await doc_cursor.to_list(length=top_k_docs)
-
-    document_context = ""
-    if doc_chunks:
-        parts = []
-        for chunk in doc_chunks:
-            doc_name = chunk.get("document_name", "Document")
-            text = chunk.get("text", "")
-            if text:
-                parts.append(f"[{doc_name}]: {text}")
-        document_context = "\n".join(parts)
-
-    logger.debug(
-        "Reasoning context built for meeting=%s: doc_chunks=%d",
-        meeting_id,
-        len(doc_chunks),
+    """Build enriched context for reasoning/recommendation requests."""
+    return await build_context(
+        meeting_id, command=command,
+        window_size=window_size, top_k_docs=top_k_docs,
     )
 
-    return {
-        **base,
-        "document_context": document_context,
-    }
+
+async def _retrieve_document_context(
+    meeting_id: str, query: str, top_k: int = 5,
+) -> str:
+    """Use the RAG retriever to fetch relevant document chunks.
+
+    Falls back to a simple MongoDB scan if the retriever fails
+    (e.g. embeddings API unavailable or vector index not configured).
+    """
+    # Try the proper vector-search retriever first
+    try:
+        from app.rag.retriever import retrieve
+        results = await retrieve(meeting_id, query, top_k=top_k)
+        if results:
+            parts = []
+            for r in results:
+                source = r.get("source", "document")
+                attr = r.get("attribution", {})
+                label = attr.get("filename") or attr.get("speaker_name") or source
+                text = r.get("text", "")
+                if text:
+                    parts.append(f"[{label}]: {text}")
+            if parts:
+                return "\n".join(parts)
+    except Exception as exc:
+        logger.warning("RAG retriever failed, falling back to simple scan: %s", exc)
+
+    # Fallback: grab first N chunks for this meeting from document_chunks
+    try:
+        db = get_database()
+        doc_cursor = db.document_chunks.find({"meeting_id": meeting_id})
+        doc_chunks = await doc_cursor.to_list(length=top_k)
+        if doc_chunks:
+            parts = []
+            for chunk in doc_chunks:
+                name = chunk.get("filename", "Document")
+                text = chunk.get("text", "")
+                if text:
+                    parts.append(f"[{name}]: {text}")
+            return "\n".join(parts)
+    except Exception as exc:
+        logger.error("Document chunk fallback also failed: %s", exc)
+
+    return ""

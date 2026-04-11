@@ -110,8 +110,8 @@ async def push_to_talk(
     if not transcript or not transcript.strip():
         return {"response_text": "", "transcript": ""}
 
-    # 2. Build context and call Claude
-    context = await build_context(meeting_id)
+    # 2. Build context (with RAG document retrieval) and call Claude
+    context = await build_context(meeting_id, command=transcript)
     result = await ai_respond(meeting_id, transcript, context)
     response_text = result.get("response_text", "")
 
@@ -157,7 +157,7 @@ async def respond(body: AIRespondRequest) -> AIRespondResponse:
 
     # Increment response count to keep queue state consistent.
     # For the REST endpoint we call ai_respond directly (no async drain needed).
-    context = await build_context(body.meeting_id)
+    context = await build_context(body.meeting_id, command=body.command)
     result = await ai_respond(body.meeting_id, body.command, context)
 
     # Drain the enqueued placeholder so the queue stays clean

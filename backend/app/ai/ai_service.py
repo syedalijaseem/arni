@@ -67,8 +67,17 @@ async def ai_respond(meeting_id: str, command: str, context: dict[str, Any]) -> 
     if not settings.ANTHROPIC_API_KEY:
         return {"response_text": FALLBACK_MESSAGE}
 
+    # Enrich with document context if caller didn't already provide it
+    if not context.get("document_context") and command:
+        try:
+            from app.ai.context_manager import _retrieve_document_context
+            doc_ctx = await _retrieve_document_context(meeting_id, command)
+            if doc_ctx:
+                context = {**context, "document_context": doc_ctx}
+        except Exception as exc:
+            logger.warning("Document context retrieval failed: %s", exc)
+
     if is_reasoning_request(command):
-        context = await build_reasoning_context(meeting_id, command)
         selected_prompt = REASONING_PROMPT
     else:
         selected_prompt = STANDARD_PROMPT
