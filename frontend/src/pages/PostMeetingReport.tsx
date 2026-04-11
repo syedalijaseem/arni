@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import ActionItemCard from '@/components/ActionItemCard'
 import MeetingTimeline from '@/components/MeetingTimeline'
+import QnAChat from '@/components/QnAChat'
 
 interface TimelineItem {
   timestamp: string
@@ -234,6 +235,17 @@ export default function PostMeetingReport() {
         <h2 className="text-base font-medium text-foreground">Meeting Timeline</h2>
         <MeetingTimeline timeline={report.timeline ?? []} />
       </section>
+
+      {/* Q&A Chat — only available after processing */}
+      {isProcessed && (
+        <section className="space-y-3">
+          <h2 className="text-base font-medium text-foreground">Ask About This Meeting</h2>
+          <p className="text-xs text-muted-foreground">
+            Ask questions about what was discussed. Up to 20 questions per meeting.
+          </p>
+          <QnAChat meetingId={meetingId!} token={token!} />
+        </section>
+      )}
     </div>
   )
 }

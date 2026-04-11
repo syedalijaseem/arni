@@ -8,6 +8,8 @@ const Login = lazy(() => import('@/pages/Login'))
 const Register = lazy(() => import('@/pages/Register'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const MeetingRoom = lazy(() => import('@/pages/MeetingRoom'))
+const PostMeetingReport = lazy(() => import('@/pages/PostMeetingReport'))
+const ErrorPage = lazy(() => import('@/pages/ErrorPage'))
 
 function RouteFallback() {
   return (
@@ -42,6 +44,15 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/report/:meetingId"
+          element={
+            <ProtectedRoute>
+              <PostMeetingReport />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/error" element={<ErrorPage />} />
       </Routes>
     </Suspense>
   )

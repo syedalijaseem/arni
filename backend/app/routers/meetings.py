@@ -112,6 +112,107 @@ async def create_meeting(
     return _meeting_response(meeting_doc)
 
 
+@router.get("/dashboard", response_model=list[MeetingListResponse])
+async def dashboard(
+    page: int = 1,
+    page_size: int = 20,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return paginated meetings for the authenticated user's dashboard (FR-049, FR-073).
+
+    Scoped to meetings where the user is host OR listed as a participant.
+    Default page size: 20.
+    """
+    db = get_database()
+
+    user_oid = ObjectId(current_user["id"])
+    user_email = current_user.get("email", "")
+
+    query = {
+        "$or": [
+            {"host_id": user_oid},
+            {"participant_ids": user_oid},
+            {"invite_list": {"$regex": f"^{user_email}$", "$options": "i"}},
+        ]
+    }
+
+    skip = (page - 1) * page_size
+    cursor = db.meetings.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+    meetings = await cursor.to_list(length=page_size)
+
+    return [
+        MeetingListResponse(
+            id=str(m["_id"]),
+            title=m.get("title"),
+            state=m["state"],
+            invite_code=m["invite_code"],
+            created_at=m["created_at"],
+            started_at=m.get("started_at"),
+            ended_at=m.get("ended_at"),
+            duration_seconds=m.get("duration_seconds"),
+            participant_count=len(m.get("participant_ids", [])),
+            action_item_count=len(m.get("action_item_ids", [])),
+        )
+        for m in meetings
+    ]
+
+
+@router.get("/search", response_model=list[MeetingListResponse])
+async def search_meetings(
+    q: str = "",
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Keyword search across title and summary, scoped to the user's own meetings (FR-073).
+
+    Returns meetings matching the query where the user is host or participant.
+    Cannot return other users' meetings.
+    """
+    db = get_database()
+
+    user_oid = ObjectId(current_user["id"])
+    user_email = current_user.get("email", "")
+
+    user_scope = {
+        "$or": [
+            {"host_id": user_oid},
+            {"participant_ids": user_oid},
+            {"invite_list": {"$regex": f"^{user_email}$", "$options": "i"}},
+        ]
+    }
+
+    if q.strip():
+        keyword_filter = {
+            "$or": [
+                {"title": {"$regex": q.strip(), "$options": "i"}},
+                {"summary": {"$regex": q.strip(), "$options": "i"}},
+            ]
+        }
+        query = {"$and": [user_scope, keyword_filter]}
+    else:
+        query = user_scope
+
+    cursor = db.meetings.find(query).sort("created_at", -1).limit(50)
+    meetings = await cursor.to_list(length=50)
+
+    return [
+        MeetingListResponse(
+            id=str(m["_id"]),
+            title=m.get("title"),
+            state=m["state"],
+            invite_code=m["invite_code"],
+            created_at=m["created_at"],
+            started_at=m.get("started_at"),
+            ended_at=m.get("ended_at"),
+            duration_seconds=m.get("duration_seconds"),
+            participant_count=len(m.get("participant_ids", [])),
+            action_item_count=len(m.get("action_item_ids", [])),
+        )
+        for m in meetings
+    ]
+
+
 @router.get("/{meeting_id}", response_model=MeetingResponse)
 async def get_meeting(
     meeting_id: str,

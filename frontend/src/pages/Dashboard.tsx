@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import ThemeToggle from "@/components/ThemeToggle";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 interface Meeting {
   id: string;
@@ -46,6 +46,17 @@ interface MeetingDetail {
   timeline: unknown[];
 }
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+
+  return debounced;
+}
+
 function Dashboard() {
   const { user, token, logout } = useAuth();
   const navigate = useNavigate();
@@ -58,28 +69,45 @@ function Dashboard() {
     null,
   );
   const [copiedLink, setCopiedLink] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedQuery = useDebounce(searchQuery, 300);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const loadMeetings = useCallback(
+    async (query: string) => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setIsLoading(true);
+      try {
+        const url = query.trim()
+          ? `/api/meetings/search?q=${encodeURIComponent(query.trim())}`
+          : `/api/meetings/dashboard`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setMeetings(data);
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name !== "AbortError") {
+          // silently ignore abort, log real errors
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [token],
+  );
 
   useEffect(() => {
-    loadMeetings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function loadMeetings() {
-    setIsLoading(true);
-    try {
-      const res = await fetch("/api/meetings", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMeetings(data);
-      }
-    } catch {
-      console.error("Failed to load meetings");
-    } finally {
-      setIsLoading(false);
-    }
-  }
+    loadMeetings(debouncedQuery);
+  }, [debouncedQuery, loadMeetings]);
 
   async function handleCreateMeeting(e: React.FormEvent) {
     e.preventDefault();
@@ -101,7 +129,7 @@ function Dashboard() {
         const meeting: MeetingDetail = await res.json();
         setCreatedMeeting(meeting);
         setNewMeetingTitle("");
-        await loadMeetings();
+        await loadMeetings(debouncedQuery);
       } else {
         const error = await res.json();
         alert(error.detail || "Failed to create meeting");
@@ -123,7 +151,7 @@ function Dashboard() {
       });
 
       if (res.ok) {
-        await loadMeetings();
+        await loadMeetings(debouncedQuery);
       } else {
         const error = await res.json();
         alert(error.detail || "Failed to delete meeting");
@@ -181,7 +209,7 @@ function Dashboard() {
 
       <main className="flex-1 px-6 md:px-12 py-8">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-2xl font-bold">Your Meetings</h1>
               <p className="text-sm text-muted-foreground mt-1">
@@ -281,6 +309,16 @@ function Dashboard() {
             </Dialog>
           </div>
 
+          {/* Search bar */}
+          <div className="mb-6">
+            <Input
+              placeholder="Search meetings by title or summary…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+          </div>
+
           {isLoading ? (
             <div className="text-center py-12 text-muted-foreground">
               Loading meetings...
@@ -288,10 +326,21 @@ function Dashboard() {
           ) : meetings.length === 0 ? (
             <Card className="p-12">
               <div className="text-center space-y-2">
-                <h2 className="text-xl font-semibold">No meetings yet</h2>
-                <p className="text-sm text-muted-foreground">
-                  Create your first meeting to get started.
-                </p>
+                {searchQuery ? (
+                  <>
+                    <h2 className="text-xl font-semibold">No results found</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Try a different search term.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-xl font-semibold">No meetings yet</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Create your first meeting to get started.
+                    </p>
+                  </>
+                )}
               </div>
             </Card>
           ) : (
@@ -322,16 +371,27 @@ function Dashboard() {
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() =>
-                          navigate(`/meeting/${meeting.invite_code}`)
-                        }
-                      >
-                        Join
-                      </Button>
+                      {meeting.state === "processed" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => navigate(`/report/${meeting.id}`)}
+                        >
+                          View Report
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() =>
+                            navigate(`/meeting/${meeting.invite_code}`)
+                          }
+                        >
+                          Join
+                        </Button>
+                      )}
                       <Button
                         variant="destructive"
                         size="sm"
