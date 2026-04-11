@@ -1,0 +1,14 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+motor==3.7.0
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+redis==5.2.1
+bcrypt==4.2.1
+python-jose[cryptography]==3.4.0
+httpx==0.28.1
+email-validator==2.2.0
+daily-python>=0.10.0
+deepgram-sdk==3.6.0
+websockets==13.1
+
