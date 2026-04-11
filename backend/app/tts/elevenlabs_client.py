@@ -2,8 +2,9 @@
 TTS client — ElevenLabs primary, Deepgram Aura fallback.
 
 Converts response text to raw 16-bit PCM audio at 16 kHz mono.
-If ElevenLabs fails for any reason (missing key, billing, API error),
-falls back to Deepgram Aura so Arni never goes silent.
+ElevenLabs convert() returns an iterator — we consume chunks eagerly
+so the caller gets audio as fast as possible.
+If ElevenLabs fails, falls back to Deepgram Aura.
 On total failure: returns None for text-only fallback per NFR-010.
 """
 
@@ -30,6 +31,7 @@ async def _elevenlabs_tts(text: str) -> Optional[bytes]:
         voice_id = settings.ELEVENLABS_VOICE_ID or "21m00Tcm4TlvDq8ikWAM"
         model_id = settings.ELEVENLABS_MODEL or "eleven_flash_v2_5"
 
+        # convert() returns an iterator of bytes chunks — consume eagerly
         audio_chunks = client.text_to_speech.convert(
             voice_id=voice_id,
             text=text,
@@ -38,6 +40,9 @@ async def _elevenlabs_tts(text: str) -> Optional[bytes]:
         )
 
         audio_bytes = b"".join(audio_chunks)
+        if not audio_bytes:
+            return None
+
         logger.info("ElevenLabs TTS produced %d bytes for %d chars", len(audio_bytes), len(text))
         return audio_bytes
 
@@ -71,6 +76,9 @@ async def _deepgram_tts(text: str) -> Optional[bytes]:
         )
 
         audio_bytes: bytes = response.stream_memory.getbuffer().tobytes()
+        if not audio_bytes:
+            return None
+
         logger.info("Deepgram TTS fallback produced %d bytes for %d chars", len(audio_bytes), len(text))
         return audio_bytes
 

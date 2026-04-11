@@ -254,8 +254,26 @@ class TestArniBotTrackTag:
 # AI service TTS chaining tests
 # ---------------------------------------------------------------------------
 
+def _make_mock_stream(text: str):
+    """Create a mock for client.messages.stream() that yields *text* as a single chunk."""
+    class _FakeTextStream:
+        async def __aiter__(self):
+            yield text
+
+    class _FakeStream:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            pass
+        @property
+        def text_stream(self):
+            return _FakeTextStream()
+
+    return _FakeStream()
+
+
 class TestAiServiceTtsChaining:
-    """Tests that ai_service chains Claude response → TTS → audio injection."""
+    """Tests that ai_service chains Claude streaming → TTS → audio injection."""
 
     @pytest.mark.asyncio
     async def test_tts_called_after_claude_response(self):
@@ -268,10 +286,9 @@ class TestAiServiceTtsChaining:
             with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
                 mock_client = MagicMock()
                 MockAnthropic.return_value = mock_client
-                mock_message = MagicMock()
-                mock_message.content = [MagicMock(text="The answer is 42.")]
-                mock_message.usage.output_tokens = 10
-                mock_client.messages.create = AsyncMock(return_value=mock_message)
+                mock_client.messages.stream = MagicMock(
+                    return_value=_make_mock_stream("The answer is 42.")
+                )
 
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock) as mock_tts:
                     mock_tts.return_value = b"audio_bytes"
@@ -296,19 +313,17 @@ class TestAiServiceTtsChaining:
             with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
                 mock_client = MagicMock()
                 MockAnthropic.return_value = mock_client
-                mock_message = MagicMock()
-                mock_message.content = [MagicMock(text="Text response here.")]
-                mock_message.usage.output_tokens = 8
-                mock_client.messages.create = AsyncMock(return_value=mock_message)
+                mock_client.messages.stream = MagicMock(
+                    return_value=_make_mock_stream("Text response here.")
+                )
 
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock) as mock_tts:
-                    mock_tts.return_value = None  # TTS failure
+                    mock_tts.return_value = None
 
                     with patch("app.ai.ai_service.inject_audio", new_callable=AsyncMock) as mock_inject:
                         from app.ai.ai_service import ai_respond
                         result = await ai_respond("meet-1", "Tell me something.", context)
 
-                # inject_audio must NOT be called when TTS fails
                 mock_inject.assert_not_called()
 
         assert result["response_text"] == "Text response here."
@@ -324,10 +339,9 @@ class TestAiServiceTtsChaining:
             with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
                 mock_client = MagicMock()
                 MockAnthropic.return_value = mock_client
-                mock_msg = MagicMock()
-                mock_msg.content = [MagicMock(text="Response.")]
-                mock_msg.usage.output_tokens = 3
-                mock_client.messages.create = AsyncMock(return_value=mock_msg)
+                mock_client.messages.stream = MagicMock(
+                    return_value=_make_mock_stream("Response.")
+                )
 
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock, return_value=None):
                     with patch("app.ai.ai_service.inject_audio", new_callable=AsyncMock) as mock_inject:
