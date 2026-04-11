@@ -21,6 +21,7 @@ from app.utils.daily import (
 )
 from app.bot.bot_manager import bot_manager
 from app.routers.transcripts import handle_bot_transcript, handle_wake_word
+from app.lobby.lobby_manager import lobby_manager
 
 router = APIRouter()
 settings = get_settings()
@@ -311,19 +312,24 @@ async def get_meeting_by_code(
 async def list_meetings(
     current_user: dict = Depends(get_current_user),
 ):
-    """List all meetings where the user is a participant."""
+    """List meetings where the user is host or in invite_list (FR-068)."""
     db = get_database()
 
     user_oid = ObjectId(current_user["id"])
+    user_email = current_user.get("email", "")
 
-    # Find all meetings where user is a participant
+    # Scope to meetings where user is host OR their email is in invite_list
     cursor = db.meetings.find(
-        {"participant_ids": user_oid}
-    ).sort("created_at", -1)  # Most recent first
+        {
+            "$or": [
+                {"host_id": user_oid},
+                {"invite_list": {"$regex": f"^{user_email}$", "$options": "i"}},
+            ]
+        }
+    ).sort("created_at", -1)
 
-    meetings = await cursor.to_list(length=100)  # Limit to 100 for now
+    meetings = await cursor.to_list(length=100)
 
-    # Convert to response format
     meeting_list = []
     for meeting in meetings:
         meeting_list.append(
@@ -342,3 +348,64 @@ async def list_meetings(
         )
 
     return meeting_list
+
+
+# ---------------------------------------------------------------------------
+# Access control endpoints (FR-058–FR-074)
+# ---------------------------------------------------------------------------
+
+async def invite_participant(
+    meeting_id: str,
+    email: str,
+    meeting: dict,
+) -> dict:
+    """Add an email address to the meeting's invite_list (host only)."""
+    db = get_database()
+    meeting_oid = meeting["_id"] if not isinstance(meeting["_id"], str) else ObjectId(meeting["_id"])
+    await db.meetings.update_one(
+        {"_id": meeting_oid},
+        {"$addToSet": {"invite_list": email.lower()}},
+    )
+    return {"invited": True, "email": email}
+
+
+async def admit_participant(
+    meeting_id: str,
+    user_id: str,
+    meeting: dict,
+    current_user: dict,
+) -> dict:
+    """Move a user from the waiting room into participant_ids (host only)."""
+    db = get_database()
+    meeting_oid = meeting["_id"] if not isinstance(meeting["_id"], str) else ObjectId(meeting["_id"])
+    await lobby_manager.remove_from_waiting_room(meeting_id, user_id)
+    await db.meetings.update_one(
+        {"_id": meeting_oid},
+        {"$addToSet": {"participant_ids": user_id}},
+    )
+    return {"admitted": True, "user_id": user_id, "admitted_by": current_user.get("id")}
+
+
+async def reject_participant(
+    meeting_id: str,
+    user_id: str,
+    meeting: dict,
+) -> dict:
+    """Remove a user from the waiting room without admitting them (host only)."""
+    await lobby_manager.remove_from_waiting_room(meeting_id, user_id)
+    return {"rejected": True, "user_id": user_id}
+
+
+async def transfer_host(
+    meeting_id: str,
+    new_host_id: str,
+    meeting: dict,
+) -> dict:
+    """Transfer host role to another participant (host only)."""
+    db = get_database()
+    meeting_oid = meeting["_id"] if not isinstance(meeting["_id"], str) else ObjectId(meeting["_id"])
+    await db.meetings.update_one(
+        {"_id": meeting_oid},
+        {"$set": {"host_id": new_host_id}},
+    )
+    return {"transferred": True, "new_host_id": new_host_id}

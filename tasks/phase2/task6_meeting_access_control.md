@@ -115,4 +115,9 @@ This task must be implemented before fact-checking and reasoning tasks, because 
 
 ## Status
 
-pending
+complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->
