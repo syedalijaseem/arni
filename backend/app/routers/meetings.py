@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 import secrets
 
 from app.config import get_settings
@@ -409,3 +410,75 @@ async def transfer_host(
         {"$set": {"host_id": new_host_id}},
     )
     return {"transferred": True, "new_host_id": new_host_id}
+
+
+# ---------------------------------------------------------------------------
+# End meeting — triggers async post-processing pipeline
+# ---------------------------------------------------------------------------
+
+class EndMeetingResponse(BaseModel):
+    meeting_id: str
+    state: str
+    message: str
+
+
+@router.post("/{meeting_id}/end", response_model=EndMeetingResponse)
+async def end_meeting(
+    meeting_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    End a meeting and trigger async post-processing.
+
+    Only the host may end the meeting. Returns immediately while
+    postprocessing-service runs asynchronously (non-blocking).
+    Frontend should listen for meeting.processed WebSocket event.
+    """
+    import asyncio
+    from app.postprocessing import processor
+
+    db = get_database()
+
+    try:
+        meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid meeting ID",
+        )
+
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found",
+        )
+
+    # Only host may end the meeting
+    if str(meeting["host_id"]) != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the meeting host can end this meeting",
+        )
+
+    if meeting["state"] in [MeetingState.ENDED, MeetingState.PROCESSED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meeting has already ended",
+        )
+
+    # Calculate duration if meeting was active
+    if meeting.get("started_at"):
+        duration = int((datetime.now(timezone.utc) - meeting["started_at"]).total_seconds())
+        await db.meetings.update_one(
+            {"_id": ObjectId(meeting_id)},
+            {"$set": {"duration_seconds": duration}},
+        )
+
+    # Trigger async post-processing pipeline — non-blocking (architecture §10)
+    asyncio.create_task(processor.run(meeting_id))
+
+    return EndMeetingResponse(
+        meeting_id=meeting_id,
+        state=MeetingState.ENDED,
+        message="Meeting ended. Processing your meeting report...",
+    )

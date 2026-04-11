@@ -64,4 +64,9 @@ When a host ends a meeting, `postprocessing-service` asynchronously generates th
 
 ## Status
 
-pending
+complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

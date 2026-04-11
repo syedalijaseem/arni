@@ -176,6 +176,134 @@ async def summarize(body: AISummarizeRequest) -> AISummarizeResponse:
     return AISummarizeResponse(summary_text=summary_text, skipped=False)
 
 
+class AIExtractDecisionsRequest(BaseModel):
+    meeting_id: str
+    transcript_text: str
+
+
+class AIExtractDecisionsResponse(BaseModel):
+    decisions: list[str]
+
+
+class AIExtractActionsRequest(BaseModel):
+    meeting_id: str
+    transcript_text: str
+
+
+class AIExtractActionsItem(BaseModel):
+    description: str
+    assignee: str | None = None
+    deadline: str | None = None
+
+
+class AIExtractActionsResponse(BaseModel):
+    action_items: list[AIExtractActionsItem]
+
+
+@router.post("/extract-decisions", response_model=AIExtractDecisionsResponse)
+async def extract_decisions(body: AIExtractDecisionsRequest) -> AIExtractDecisionsResponse:
+    """
+    Extract decisions from a meeting transcript.
+
+    Only explicitly stated decisions are returned — no inference (FR-042).
+    Returns an empty list when no explicit decisions exist.
+    """
+    import json
+    from app.config import get_settings as _get_settings
+    import anthropic as _anthropic
+
+    settings = _get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service not configured",
+        )
+
+    system_prompt = (
+        "Extract decisions ONLY if explicitly stated in the transcript. "
+        "Do not infer. Return a JSON array of strings. "
+        "If there are no explicit decisions, return an empty array []."
+    )
+
+    try:
+        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+        )
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
+        decisions = json.loads(raw)
+        if not isinstance(decisions, list):
+            decisions = []
+        decisions = [str(d) for d in decisions if d]
+    except Exception as exc:
+        logger.error("extract-decisions error: %s", exc)
+        decisions = []
+
+    return AIExtractDecisionsResponse(decisions=decisions)
+
+
+@router.post("/extract-actions", response_model=AIExtractActionsResponse)
+async def extract_actions(body: AIExtractActionsRequest) -> AIExtractActionsResponse:
+    """
+    Extract action items from a meeting transcript.
+
+    Only items from explicit commitments or assignments are returned (FR-043).
+    Returns an empty list when no explicit action items exist.
+    """
+    import json
+    from app.config import get_settings as _get_settings
+    import anthropic as _anthropic
+
+    settings = _get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service not configured",
+        )
+
+    system_prompt = (
+        "Extract action items ONLY from explicit commitments or assignments stated in the transcript. "
+        "Do not infer tasks. "
+        "Return a JSON array of objects with keys: description, assignee, deadline. "
+        "Use null for assignee/deadline when not stated. "
+        "If there are no explicit action items, return an empty array []."
+    )
+
+    try:
+        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+        )
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
+        items = json.loads(raw)
+        if not isinstance(items, list):
+            items = []
+        action_items = [
+            AIExtractActionsItem(
+                description=str(item.get("description") or ""),
+                assignee=item.get("assignee"),
+                deadline=item.get("deadline"),
+            )
+            for item in items
+            if isinstance(item, dict)
+        ]
+    except Exception as exc:
+        logger.error("extract-actions error: %s", exc)
+        action_items = []
+
+    return AIExtractActionsResponse(action_items=action_items)
+
+
 @router.post("/fact-check", response_model=AIFactCheckResponse)
 async def fact_check(body: AIFactCheckRequest) -> AIFactCheckResponse:
     """
