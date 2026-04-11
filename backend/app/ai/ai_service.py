@@ -18,6 +18,9 @@ import anthropic
 from app.config import get_settings
 from app.tts.elevenlabs_client import text_to_speech
 from app.tts.audio_injection import inject_audio
+from app.ai.reasoning_detector import is_reasoning_request
+from app.ai.context_manager import build_context, build_reasoning_context
+from app.ai.prompt_templates import STANDARD_PROMPT, REASONING_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +120,14 @@ async def ai_respond(
     """
     Call Claude Sonnet and return the response text.
 
+    Routes to REASONING_PROMPT when the command contains comparison/recommendation
+    language (FR-085). Otherwise uses STANDARD_PROMPT.
+
     Args:
         meeting_id: Used for logging only.
         command: The user's spoken command / question.
-        context: Output of context_manager.build_context().
+        context: Output of context_manager.build_context() or build_reasoning_context().
+                 Pass the pre-built context in; routing logic may override it.
 
     Returns:
         {"response_text": str} — always returns this shape, never raises.
@@ -131,9 +138,31 @@ async def ai_respond(
         logger.error("ANTHROPIC_API_KEY is not set — returning fallback")
         return {"response_text": FALLBACK_MESSAGE}
 
+    # Route to reasoning context/prompt when comparison language detected
+    if is_reasoning_request(command):
+        context = await build_reasoning_context(meeting_id, command)
+        selected_prompt = REASONING_PROMPT
+    else:
+        selected_prompt = STANDARD_PROMPT
+
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        system_prompt = _build_system_prompt(context)
+
+        # Build the full prompt from the selected template
+        summary = context.get("summary", "")
+        turns = context.get("turns") or context.get("recent_turns") or []
+        recent_turns_text = "\n".join(
+            f"{t.get('speaker_name', 'Participant')}: {t['text']}" for t in turns
+        )
+        document_context = context.get("document_context", "")
+        full_system = selected_prompt.format(
+            summary=summary,
+            recent_turns=recent_turns_text,
+            document_context=document_context,
+            command=command,
+        )
+
+        system_prompt = full_system
         messages = _build_messages(command, context)
 
         message = await client.messages.create(

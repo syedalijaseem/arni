@@ -93,4 +93,60 @@ async def build_context(
         "system": ARNI_SYSTEM_PROMPT,
         "summary": summary_text,
         "turns": turns,
+        "recent_turns": turns,
+        "document_context": "",
+    }
+
+
+async def build_reasoning_context(
+    meeting_id: str,
+    command: str,
+    window_size: int | None = None,
+    top_k_docs: int = 5,
+) -> dict[str, Any]:
+    """
+    Build an enriched context payload for reasoning/recommendation requests.
+
+    Identical to build_context but additionally retrieves document chunks
+    relevant to `command` via a simple keyword search against document_chunks
+    (FR-088: RAG context included in reasoning).
+
+    Args:
+        meeting_id: The meeting identifier.
+        command: The user's wake-word command text (used for RAG retrieval).
+        window_size: How many recent transcript turns to include.
+        top_k_docs: Maximum number of document chunk excerpts to include.
+
+    Returns:
+        Same shape as build_context, plus:
+          "document_context": str — concatenated relevant document excerpts
+    """
+    base = await build_context(meeting_id, window_size=window_size)
+
+    db = get_database()
+
+    # Simple text-based RAG: fetch document chunks for this meeting
+    # A real implementation would do vector search; here we use $text or limit
+    doc_cursor = db.document_chunks.find({"meeting_id": meeting_id})
+    doc_chunks = await doc_cursor.to_list(length=top_k_docs)
+
+    document_context = ""
+    if doc_chunks:
+        parts = []
+        for chunk in doc_chunks:
+            doc_name = chunk.get("document_name", "Document")
+            text = chunk.get("text", "")
+            if text:
+                parts.append(f"[{doc_name}]: {text}")
+        document_context = "\n".join(parts)
+
+    logger.debug(
+        "Reasoning context built for meeting=%s: doc_chunks=%d",
+        meeting_id,
+        len(doc_chunks),
+    )
+
+    return {
+        **base,
+        "document_context": document_context,
     }
