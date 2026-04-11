@@ -27,7 +27,7 @@ FALLBACK_MESSAGE = (
 )
 
 CLAUDE_MODEL = "claude-sonnet-4-5"
-MAX_TOKENS = 150
+MAX_TOKENS = 80
 
 # Regex to split text at sentence boundaries (period, question mark, exclamation)
 # while keeping the delimiter attached to the preceding sentence.

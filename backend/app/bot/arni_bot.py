@@ -92,11 +92,6 @@ class ArniBot:
         self.AI_AUDIO_TRACK_TAG = AI_AUDIO_TRACK_TAG
         self.wake_word_detector = WakeWordDetector()
 
-        # Conversation window
-        self._conv_window_seconds: float = float(self.settings.CONVERSATION_WINDOW_SECONDS)
-        self._last_response_time: float = 0.0
-        self._last_speaker_id: str = ""
-
         # Speaking state
         self._speaking = False
         self._cancel_event = asyncio.Event()
@@ -262,43 +257,24 @@ class ArniBot:
         full_text = buf["text"]
         speaker_name = buf["speaker_name"]
 
-        logger.info("Utterance complete from %s: %r", speaker_name, full_text)
-
         # If still speaking when the buffer flushes (edge case), discard
         if self._speaking:
-            logger.debug("Discarding buffered utterance — still speaking")
             return
 
-        # 1. Try explicit wake word detection on the complete utterance
+        # Wake word is the ONLY gate — no wake word means silent discard.
         wake_result = self.wake_word_detector.detect(
             text=full_text,
             speaker_id=speaker_id,
             speaker_name=speaker_name,
         )
+        if not wake_result:
+            return
 
-        # 2. If no wake word, check conversation window for follow-ups
-        if wake_result is None:
-            now = time.time()
-            in_window = (
-                self._last_speaker_id == speaker_id
-                and (now - self._last_response_time) < self._conv_window_seconds
-            )
-            if in_window:
-                wake_result = WakeWordResult(
-                    speaker_id=speaker_id,
-                    speaker_name=speaker_name,
-                    command=full_text,
-                    timestamp=now,
-                )
-                logger.info("Conversation window follow-up from %s: %r", speaker_name, full_text)
-
-        if wake_result:
-            self._last_response_time = time.time()
-            self._last_speaker_id = speaker_id
-            await self.wake_word_callback(
-                meeting_id=self.meeting_id,
-                result=wake_result,
-            )
+        logger.info("Wake word triggered from %s: %r", speaker_name, wake_result.command)
+        await self.wake_word_callback(
+            meeting_id=self.meeting_id,
+            result=wake_result,
+        )
 
     # ------------------------------------------------------------------
     # Audio output
