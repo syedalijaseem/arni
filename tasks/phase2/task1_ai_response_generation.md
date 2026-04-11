@@ -68,4 +68,9 @@ Integrate Claude Sonnet as the AI response engine for Arni. Implement the hybrid
 
 ## Status
 
-pending
+complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

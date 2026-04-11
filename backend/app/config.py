@@ -38,6 +38,25 @@ class Settings(BaseSettings):
     WAKE_PHRASES: str = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
     WAKE_COOLDOWN_SECONDS: int = 5
 
+    # AI / Claude
+    ANTHROPIC_API_KEY: str = ""
+    AI_CONTEXT_WINDOW: int = 20
+    AI_MAX_RESPONSES: int = 30
+
+    # OpenAI (Embeddings)
+    OPENAI_API_KEY: str = ""
+
+    # ElevenLabs (TTS)
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_VOICE_ID: str = ""
+
+    # Fact Check
+    FACT_CHECK_CONFIDENCE_THRESHOLD: float = 0.85
+    FACT_CHECK_COOLDOWN_SECONDS: int = 30
+
+    # Meetings
+    HOST_GRACE_PERIOD_MINUTES: int = 10
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

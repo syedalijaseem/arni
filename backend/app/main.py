@@ -7,6 +7,7 @@ from app.database import connect_to_mongo, close_mongo_connection, get_database
 from app.routers.auth import router as auth_router
 from app.routers.meetings import router as meetings_router
 from app.routers.transcripts import router as transcripts_router
+from app.routers.ai import router as ai_router
 import daily
 
 settings = get_settings()
@@ -40,6 +41,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
 app.include_router(transcripts_router, prefix="/transcripts", tags=["transcripts"])
+app.include_router(ai_router, prefix="/ai", tags=["ai"])
 
 
 @app.get("/health")
