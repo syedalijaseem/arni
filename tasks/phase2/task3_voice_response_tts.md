@@ -71,4 +71,9 @@ Connect Claude's text response to ElevenLabs TTS, inject the resulting audio int
 
 ## Status
 
-pending
+complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

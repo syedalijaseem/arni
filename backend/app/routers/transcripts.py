@@ -45,13 +45,23 @@ async def save_transcript_to_db(transcript: TranscriptCreate):
     doc = transcript.model_dump()
     await db.transcripts.insert_one(doc)
 
+ARNI_SPEAKER_ID = "arni"
+
+
 async def handle_bot_transcript(transcript: TranscriptCreate):
-    """Callback for ArniBot to push new transcripts to WebSockets and DB."""
-    # Only save to DB if it is final
-    if transcript.is_final:
+    """Callback for ArniBot to push new transcripts to WebSockets and DB.
+
+    Arni's own speech (speaker_id == 'arni') is broadcast to the frontend
+    for display but NEVER saved to MongoDB — this prevents Arni from
+    transcribing its own responses (FR-035).
+    """
+    is_arni = transcript.speaker_id == ARNI_SPEAKER_ID
+
+    # Only save to DB if it is final and NOT from Arni
+    if transcript.is_final and not is_arni:
         await save_transcript_to_db(transcript)
-    
-    # Broadcast to all connected clients
+
+    # Broadcast to all connected clients (including Arni's text for UI display)
     await manager.broadcast(transcript.meeting_id, transcript.model_dump(mode="json"))
 
 

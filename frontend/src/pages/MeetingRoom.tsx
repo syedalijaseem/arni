@@ -46,6 +46,39 @@ interface WakeWordEvent {
   timestamp: number;
 }
 
+type ArniState = "listening" | "processing" | "speaking";
+
+interface AiStateChangedEvent {
+  type: "ai.state_changed";
+  state: ArniState;
+}
+
+const AI_STATE_LABEL: Record<ArniState, string> = {
+  listening: "Arni is listening...",
+  processing: "Arni is generating a response...",
+  speaking: "Arni is speaking...",
+};
+
+const AI_STATE_COLOR: Record<ArniState, string> = {
+  listening: "text-sky-400",
+  processing: "text-yellow-400",
+  speaking: "text-emerald-400",
+};
+
+function ArniStatusIndicator({ state }: { state: ArniState }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-900/80 border border-gray-700 text-xs">
+      <span
+        className={[
+          "inline-block w-2 h-2 rounded-full animate-pulse",
+          state === "listening" ? "bg-sky-400" : state === "processing" ? "bg-yellow-400" : "bg-emerald-400",
+        ].join(" ")}
+      />
+      <span className={AI_STATE_COLOR[state]}>{AI_STATE_LABEL[state]}</span>
+    </div>
+  );
+}
+
 function MeetingRoomContent() {
   const { inviteCode } = useParams<{ inviteCode: string }>();
   const { token } = useAuth();
@@ -63,6 +96,7 @@ function MeetingRoomContent() {
   const [interimTranscripts, setInterimTranscripts] = useState<Record<string, { text: string; speaker_name: string }>>({});
   const [wakeWordEvent, setWakeWordEvent] = useState<WakeWordEvent | null>(null);
   const wakeWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [arniState, setArniState] = useState<ArniState>("listening");
 
   useEffect(() => {
     if (!meeting?.id) return;
@@ -75,6 +109,15 @@ function MeetingRoomContent() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle AI state change events
+        if (data.type === "ai.state_changed") {
+          const evt = data as AiStateChangedEvent;
+          if (evt.state === "listening" || evt.state === "processing" || evt.state === "speaking") {
+            setArniState(evt.state);
+          }
+          return;
+        }
 
         // Handle wake word events
         if (data.type === "wake_word") {
@@ -297,9 +340,12 @@ function MeetingRoomContent() {
         <Card className="w-80 bg-gray-950 border-gray-800 hidden lg:flex flex-col">
           <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm flex items-center justify-between">
             <span>Live Transcript</span>
-            {wakeWordEvent && (
-              <span className="text-xs text-emerald-400 animate-pulse">● Triggered</span>
-            )}
+            <div className="flex items-center gap-2">
+              <ArniStatusIndicator state={arniState} />
+              {wakeWordEvent && (
+                <span className="text-xs text-emerald-400 animate-pulse">● Triggered</span>
+              )}
+            </div>
           </div>
 
           {/* Wake word indicator */}

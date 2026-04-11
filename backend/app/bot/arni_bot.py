@@ -17,6 +17,11 @@ from app.bot.wake_word import WakeWordDetector
 
 logger = logging.getLogger(__name__)
 
+# Arni's Daily.co audio track tag — prevents Deepgram STT from processing
+# Arni's own synthesised speech (FR-034, §3 Audio Feedback Loop Prevention).
+AI_AUDIO_TRACK_TAG = "ai-source"
+
+
 class ArniEventHandler(daily.EventHandler):
     def __init__(self, bot: "ArniBot"):
         self.bot = bot
@@ -70,9 +75,12 @@ class ArniBot:
         self.participant_id_to_user: Dict[str, str] = {}
         self.participant_id_to_name: Dict[str, str] = {}
         self.dg_connections: Dict[str, Any] = {}
-        
+
+        # Tag for Arni's audio track — used to prevent STT feedback loop
+        self.AI_AUDIO_TRACK_TAG = AI_AUDIO_TRACK_TAG
+
         self.wake_word_detector = WakeWordDetector()
-        
+
         self.loop = asyncio.get_running_loop()
 
     async def _start_deepgram_for_participant(self, participant_id: str):
@@ -103,6 +111,10 @@ class ArniBot:
 
                 # Broadcast the transcript payload through the WebSocket manager
                 await self.broadcast_callback(payload)
+
+                # Never process Arni's own speech through wake detection (FR-034, FR-035)
+                if speaker_id == "arni":
+                    return
 
                 # Feed final transcripts into wake word detector
                 if is_final and self.wake_word_callback:

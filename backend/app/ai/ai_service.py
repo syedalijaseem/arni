@@ -16,6 +16,8 @@ from typing import Any
 import anthropic
 
 from app.config import get_settings
+from app.tts.elevenlabs_client import text_to_speech
+from app.tts.audio_injection import inject_audio
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,17 @@ async def ai_respond(
             meeting_id,
             message.usage.output_tokens,
         )
+
+        # Chain TTS → audio injection (NFR-010: failure is non-fatal)
+        audio_bytes = await text_to_speech(response_text)
+        if audio_bytes is not None:
+            await inject_audio(audio_bytes, meeting_id)
+        else:
+            logger.info(
+                "TTS returned None for meeting=%s — text-only fallback active",
+                meeting_id,
+            )
+
         return {"response_text": response_text}
 
     except anthropic.APIError as exc:
