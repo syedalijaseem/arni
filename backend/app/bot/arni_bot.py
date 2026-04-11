@@ -1,8 +1,23 @@
+"""
+ArniBot — the real-time AI meeting assistant pipeline.
+
+Pipeline flow:
+  Deepgram transcript → is_final? → is Arni? → busy? → buffer 800ms
+  → wake word? → Claude streaming → TTS → audio chunks → Daily.co mic
+
+Rules:
+  - Only FINAL transcripts trigger processing (interim = display only)
+  - Wake word required every time (no conversation window)
+  - Skip-if-busy (no queue — just drop if processing/speaking)
+  - Stop phrases cancel immediately
+  - 500ms overlap window after TTS stops to discard echo
+"""
+
 import asyncio
 import logging
 import re
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 import daily
 from deepgram import (
@@ -18,9 +33,12 @@ from app.bot.wake_word import WakeWordDetector, WakeWordResult
 
 logger = logging.getLogger(__name__)
 
-# Arni's Daily.co audio track tag — prevents Deepgram STT from processing
-# Arni's own synthesised speech (FR-034, §3 Audio Feedback Loop Prevention).
 AI_AUDIO_TRACK_TAG = "ai-source"
+
+_STOP_RE = re.compile(
+    r"^(?:stop|wait|cancel|enough|quiet|silence|shut up)[\s.!?]*$",
+    re.IGNORECASE,
+)
 
 
 class ArniEventHandler(daily.EventHandler):
@@ -28,36 +46,25 @@ class ArniEventHandler(daily.EventHandler):
         self.bot = bot
 
     def on_participant_joined(self, participant):
-        session_id = participant["id"]
-        user_name = participant["info"].get("userName", "")
-        user_id = participant["info"].get("userId") or participant.get("user_id", user_name)
-
-        self.bot.participant_id_to_user[session_id] = user_id
-        self.bot.participant_id_to_name[session_id] = user_name or user_id
-        logger.info(f"Bot saw participant join: {session_id} ({user_name} -> {user_id})")
-
+        sid = participant["id"]
+        name = participant["info"].get("userName", "")
+        uid = participant["info"].get("userId") or participant.get("user_id", name)
+        self.bot.participants[sid] = {"user_id": uid, "name": name or uid}
         asyncio.run_coroutine_threadsafe(
-            self.bot._start_deepgram_for_participant(session_id),
-            self.bot.loop
+            self.bot._start_deepgram(sid), self.bot.loop
         )
 
     def on_participant_left(self, participant, reason):
-        session_id = participant["id"]
-        logger.info(f"Bot saw participant leave: {session_id}")
-
-        if session_id in self.bot.participant_id_to_user:
-            del self.bot.participant_id_to_user[session_id]
-        if session_id in self.bot.participant_id_to_name:
-            del self.bot.participant_id_to_name[session_id]
-
+        sid = participant["id"]
+        self.bot.participants.pop(sid, None)
         asyncio.run_coroutine_threadsafe(
-            self.bot._stop_deepgram_for_participant(session_id),
-            self.bot.loop
+            self.bot._stop_deepgram(sid), self.bot.loop
         )
 
 
 class ArniBot:
-    def __init__(self, meeting_id: str, room_url: str, token: str, broadcast_callback, wake_word_callback=None):
+    def __init__(self, meeting_id: str, room_url: str, token: str,
+                 broadcast_callback, wake_word_callback=None):
         self.meeting_id = meeting_id
         self.room_url = room_url
         self.token = token
@@ -69,116 +76,87 @@ class ArniBot:
         self.client = daily.CallClient(event_handler=self.event_handler)
         self.deepgram = DeepgramClient(self.settings.DEEPGRAM_API_KEY)
 
-        # Virtual microphone for sending TTS audio into the meeting.
         self.virtual_mic = daily.Daily.create_microphone_device(
-            "arni-mic",
-            sample_rate=16000,
-            channels=1,
-            non_blocking=True,
+            "arni-mic", sample_rate=16000, channels=1, non_blocking=True,
         )
-
         self.client.update_inputs({
             "camera": False,
-            "microphone": {
-                "isEnabled": True,
-                "settings": {"deviceId": "arni-mic"},
-            },
+            "microphone": {"isEnabled": True, "settings": {"deviceId": "arni-mic"}},
         })
 
-        self.participant_id_to_user: Dict[str, str] = {}
-        self.participant_id_to_name: Dict[str, str] = {}
+        self.participants: Dict[str, dict] = {}
         self.dg_connections: Dict[str, Any] = {}
-
         self.AI_AUDIO_TRACK_TAG = AI_AUDIO_TRACK_TAG
         self.wake_word_detector = WakeWordDetector()
 
-        # Speaking state
-        self._speaking = False
-        self._cancel_event = asyncio.Event()
-        self._tts_stop_time: float = 0.0  # timestamp when TTS was cancelled/finished
+        # State: busy = processing Claude / speaking TTS
+        self._busy = False
+        self._cancel = asyncio.Event()
+        self._tts_stop_time: float = 0.0
 
-        # Stop phrases — checked BEFORE anything else on final transcripts.
-        self._stop_re = re.compile(
-            r"^(?:stop|stop arni|stop arnie|hey stop|cancel|nevermind|never mind"
-            r"|wait|hold on|pause)[\s.!?]*$",
-            re.IGNORECASE,
-        )
-
-        # Utterance buffer: groups fragmented final transcripts into one utterance.
-        # speaker_id -> {"text": str, "speaker_name": str, "timer": asyncio.TimerHandle}
-        self._utterance_buffers: Dict[str, dict] = {}
-        self._utterance_silence_s: float = self.settings.UTTERANCE_SILENCE_MS / 1000.0
+        # Utterance buffer per speaker
+        self._buffers: Dict[str, dict] = {}
+        self._silence_s: float = self.settings.UTTERANCE_SILENCE_MS / 1000.0
 
         self.loop = asyncio.get_running_loop()
 
-    # ------------------------------------------------------------------
-    # Deepgram per-participant setup
-    # ------------------------------------------------------------------
+    # ── Deepgram ─────────────────────────────────────────────────────
 
-    async def _start_deepgram_for_participant(self, participant_id: str):
+    async def _start_deepgram(self, participant_id: str):
         try:
-            dg_connection = self.deepgram.listen.asyncwebsocket.v("1")
+            dg = self.deepgram.listen.asyncwebsocket.v("1")
 
             async def on_message(_conn, result, **kwargs):
                 if not result.channel.alternatives:
                     return
-                transcript = result.channel.alternatives[0].transcript
-                if not transcript:
+                text = result.channel.alternatives[0].transcript
+                if not text:
                     return
 
                 is_final = result.is_final
+                p = self.participants.get(participant_id, {})
+                speaker_id = p.get("user_id", participant_id)
+                speaker_name = p.get("name", speaker_id)
 
-                speaker_id = self.participant_id_to_user.get(participant_id, participant_id)
-                speaker_name = self.participant_id_to_name.get(participant_id, speaker_id)
-
-                # Always broadcast to WebSocket for live display (interim + final)
-                payload = TranscriptCreate(
+                # Always broadcast for live display
+                await self.broadcast_callback(TranscriptCreate(
                     meeting_id=self.meeting_id,
                     speaker_id=speaker_id,
                     speaker_name=speaker_name,
-                    text=transcript,
+                    text=text,
                     is_final=is_final,
-                )
-                await self.broadcast_callback(payload)
+                ))
 
-                # --- Everything below is FINAL-only processing ---
+                # ── Only process FINAL transcripts ──
                 if not is_final:
                     return
-
-                # Fix 4: Never process Arni's own speech (FR-034, FR-035)
                 if speaker_id == "arni":
                     return
-
                 if not self.wake_word_callback:
                     return
 
-                # Fix 3: Discard overlap speech right after TTS stops
-                now = time.time()
-                if now < self._tts_stop_time + 0.5:
-                    logger.debug("Discarding overlap transcript (%.0fms after TTS stop): %r",
-                                 (now - self._tts_stop_time) * 1000, transcript)
+                # Overlap window — discard transcripts that arrived
+                # within 500ms of TTS stopping (echo/crosstalk)
+                if time.time() < self._tts_stop_time + 0.5:
                     return
 
-                # Stop phrase check — highest priority, even while speaking
-                if self._stop_re.match(transcript.strip()):
-                    if self._speaking:
-                        logger.info("Stop phrase detected from %s — cancelling speech", speaker_name)
-                        self._cancel_event.set()
-                    # Clear utterance buffer for this speaker
-                    self._clear_utterance_buffer(speaker_id)
+                # Stop phrase — always checked, even when busy
+                if _STOP_RE.match(text.strip()):
+                    if self._busy:
+                        self._cancel.set()
+                    self._clear_buffer(speaker_id)
                     return
 
-                # Transcript lockout: discard everything while speaking
-                if self._speaking:
-                    logger.debug("Discarding transcript while speaking: %r", transcript)
+                # Skip if busy (no queue)
+                if self._busy:
                     return
 
-                # Fix 2: Buffer final transcripts into utterances
-                self._append_to_utterance_buffer(speaker_id, speaker_name, transcript)
+                # Buffer the transcript
+                self._append_buffer(speaker_id, speaker_name, text)
 
-            dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
+            dg.on(LiveTranscriptionEvents.Transcript, on_message)
 
-            options = LiveOptions(
+            ok = await dg.start(LiveOptions(
                 model="nova-2",
                 language="en-US",
                 encoding="linear16",
@@ -191,137 +169,109 @@ class ArniBot:
                 endpointing=300,
                 utterance_end_ms=1000,
                 vad_events=True,
-            )
-
-            if await dg_connection.start(options) is False:
+            ))
+            if not ok:
                 logger.error("Failed to connect to Deepgram")
                 return
 
-            self.dg_connections[participant_id] = dg_connection
+            self.dg_connections[participant_id] = dg
 
-            def on_audio_data(participant_session_id, audio_data, audio_source=None):
-                if dg_connection and audio_data.audio_frames:
+            def on_audio(pid, audio_data, audio_source=None):
+                if dg and audio_data.audio_frames:
                     asyncio.run_coroutine_threadsafe(
-                        dg_connection.send(audio_data.audio_frames),
-                        self.loop
+                        dg.send(audio_data.audio_frames), self.loop
                     )
 
-            self.client.set_audio_renderer(participant_id, on_audio_data)
-
+            self.client.set_audio_renderer(participant_id, on_audio)
         except Exception as e:
-            logger.error(f"Error setting up Deepgram for {participant_id}: {e}")
+            logger.error("Deepgram setup failed for %s: %s", participant_id, e)
 
-    async def _stop_deepgram_for_participant(self, participant_id: str):
+    async def _stop_deepgram(self, participant_id: str):
         self.client.set_audio_renderer(participant_id, None)
-        dg_connection = self.dg_connections.get(participant_id)
-        if dg_connection:
-            await dg_connection.finish()
-            del self.dg_connections[participant_id]
+        dg = self.dg_connections.pop(participant_id, None)
+        if dg:
+            await dg.finish()
 
-    # ------------------------------------------------------------------
-    # Utterance buffering
-    # ------------------------------------------------------------------
+    # ── Utterance buffer ─────────────────────────────────────────────
 
-    def _append_to_utterance_buffer(self, speaker_id: str, speaker_name: str, text: str):
-        """Add a final transcript fragment to the speaker's buffer and (re)start the silence timer."""
-        buf = self._utterance_buffers.get(speaker_id)
+    def _append_buffer(self, speaker_id: str, speaker_name: str, text: str):
+        buf = self._buffers.get(speaker_id)
         if buf:
-            # Cancel existing timer, append text
             if buf["timer"] is not None:
                 buf["timer"].cancel()
             buf["text"] = (buf["text"] + " " + text).strip()
         else:
-            buf = {"text": text, "speaker_name": speaker_name, "timer": None}
-            self._utterance_buffers[speaker_id] = buf
+            buf = {"text": text, "name": speaker_name, "timer": None}
+            self._buffers[speaker_id] = buf
 
-        # Start silence timer — when it fires, the buffered text is treated as one utterance
         buf["timer"] = self.loop.call_later(
-            self._utterance_silence_s,
+            self._silence_s,
             lambda sid=speaker_id: asyncio.run_coroutine_threadsafe(
-                self._flush_utterance_buffer(sid), self.loop
+                self._flush_buffer(sid), self.loop
             ),
         )
 
-    def _clear_utterance_buffer(self, speaker_id: str):
-        """Discard a speaker's buffered utterance and cancel its timer."""
-        buf = self._utterance_buffers.pop(speaker_id, None)
+    def _clear_buffer(self, speaker_id: str):
+        buf = self._buffers.pop(speaker_id, None)
         if buf and buf["timer"] is not None:
             buf["timer"].cancel()
 
-    async def _flush_utterance_buffer(self, speaker_id: str):
-        """Timer fired — treat the buffered text as one complete utterance."""
-        buf = self._utterance_buffers.pop(speaker_id, None)
+    async def _flush_buffer(self, speaker_id: str):
+        buf = self._buffers.pop(speaker_id, None)
         if not buf or not buf["text"].strip():
+            return
+        if self._busy:
             return
 
         full_text = buf["text"]
-        speaker_name = buf["speaker_name"]
+        speaker_name = buf["name"]
 
-        # If still speaking when the buffer flushes (edge case), discard
-        if self._speaking:
+        # Wake word is the only gate
+        result = self.wake_word_detector.detect(full_text, speaker_id, speaker_name)
+        if not result:
             return
 
-        # Wake word is the ONLY gate — no wake word means silent discard.
-        wake_result = self.wake_word_detector.detect(
-            text=full_text,
-            speaker_id=speaker_id,
-            speaker_name=speaker_name,
-        )
-        if not wake_result:
-            return
+        logger.info("Wake: %s said %r", speaker_name, result.command)
+        self._busy = True
+        try:
+            await self.wake_word_callback(
+                meeting_id=self.meeting_id, result=result,
+            )
+        finally:
+            self._busy = False
 
-        logger.info("Wake word triggered from %s: %r", speaker_name, wake_result.command)
-        await self.wake_word_callback(
-            meeting_id=self.meeting_id,
-            result=wake_result,
-        )
-
-    # ------------------------------------------------------------------
-    # Audio output
-    # ------------------------------------------------------------------
+    # ── Audio output ─────────────────────────────────────────────────
 
     async def send_audio(self, audio_bytes: bytes) -> None:
-        """Write raw PCM frames to the virtual microphone.
-
-        Splits audio into ~100ms chunks so that a stop command can interrupt
-        playback between chunks rather than waiting for the entire clip.
-        """
+        """Stream PCM in 100ms chunks. Cancellable between chunks."""
         if not audio_bytes:
             return
-
-        self._speaking = True
-        self._cancel_event.clear()
-
-        # 16 kHz * 2 bytes/sample * 1 channel * 0.1 s = 3200 bytes per 100ms chunk
-        chunk_size = 3200
-        total = len(audio_bytes)
+        self._cancel.clear()
+        chunk_size = 3200  # 100ms at 16kHz 16-bit mono
         offset = 0
-
-        logger.info("send_audio: streaming %d bytes to virtual mic for meeting %s", total, self.meeting_id)
         try:
-            while offset < total:
-                if self._cancel_event.is_set():
-                    logger.info("send_audio: cancelled at byte %d/%d", offset, total)
+            while offset < len(audio_bytes):
+                if self._cancel.is_set():
+                    logger.info("Audio cancelled at %d/%d bytes", offset, len(audio_bytes))
                     break
-                chunk = audio_bytes[offset:offset + chunk_size]
-                await self.loop.run_in_executor(None, self.virtual_mic.write_frames, chunk)
+                await self.loop.run_in_executor(
+                    None, self.virtual_mic.write_frames,
+                    audio_bytes[offset:offset + chunk_size],
+                )
                 offset += chunk_size
         finally:
-            self._speaking = False
             self._tts_stop_time = time.time()
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    # ── Lifecycle ────────────────────────────────────────────────────
 
     async def join(self):
-        logger.info(f"Arni Bot joining meeting {self.meeting_id}")
+        logger.info("Arni Bot joining meeting %s", self.meeting_id)
         self.client.set_user_name("Arni Bot")
         self.client.join(self.room_url, self.token)
 
     async def leave(self):
-        logger.info(f"Arni Bot leaving meeting {self.meeting_id}")
+        logger.info("Arni Bot leaving meeting %s", self.meeting_id)
         self.client.leave()
-        for p_id in list(self.dg_connections.keys()):
-            await self._stop_deepgram_for_participant(p_id)
+        for pid in list(self.dg_connections):
+            await self._stop_deepgram(pid)
         self.client.release()
