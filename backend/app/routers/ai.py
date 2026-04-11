@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.ai.context_manager import build_context
 from app.ai.ai_service import ai_respond, ai_summarize
 from app.ai.response_queue import get_or_create_queue, RATE_LIMIT_SENTINEL
+from app.ai.fact_checker import fact_checker
 from app.database import get_database
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,20 @@ class AISummarizeRequest(BaseModel):
 class AISummarizeResponse(BaseModel):
     summary_text: str | None = None
     skipped: bool = False
+
+
+class AIFactCheckRequest(BaseModel):
+    meeting_id: str
+    transcript_text: str
+    speaker_id: str
+
+
+class AIFactCheckResponse(BaseModel):
+    contradicts: bool
+    confidence: float | None = None
+    correction_text: str | None = None
+    source_document: str | None = None
+    source_excerpt: str | None = None
 
 
 @router.post("/respond", response_model=AIRespondResponse)
@@ -159,3 +174,31 @@ async def summarize(body: AISummarizeRequest) -> AISummarizeResponse:
     logger.info("Rolling summary stored for meeting=%s", body.meeting_id)
 
     return AISummarizeResponse(summary_text=summary_text, skipped=False)
+
+
+@router.post("/fact-check", response_model=AIFactCheckResponse)
+async def fact_check(body: AIFactCheckRequest) -> AIFactCheckResponse:
+    """
+    Run a proactive fact-check pass for a single transcript turn.
+
+    Steps:
+      1. Call FactChecker.check() with the transcript text.
+      2. If a contradiction above confidence threshold is found, return it.
+      3. If no contradiction (or check skipped), return contradicts=False.
+    """
+    result = await fact_checker.check(
+        meeting_id=body.meeting_id,
+        speaker_id=body.speaker_id,
+        transcript_text=body.transcript_text,
+    )
+
+    if result is None:
+        return AIFactCheckResponse(contradicts=False)
+
+    return AIFactCheckResponse(
+        contradicts=result.get("contradicts", False),
+        confidence=result.get("confidence"),
+        correction_text=result.get("correction_text"),
+        source_document=result.get("source_document"),
+        source_excerpt=result.get("source_excerpt"),
+    )

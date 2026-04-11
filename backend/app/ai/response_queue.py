@@ -88,6 +88,31 @@ class MeetingQueue:
         logger.debug("Enqueued request_id=%s for meeting=%s", request_id, meeting_id)
         return request_id
 
+    async def enqueue_correction(
+        self,
+        meeting_id: str,
+        correction_text: str,
+        source_document: str,
+        source_excerpt: str,
+    ) -> None:
+        """
+        Enqueue a fact-check correction item.
+
+        The item is tagged with response_type='fact_check' so consumers can
+        route it separately from regular AI responses.
+        """
+        item = {
+            "response_type": "fact_check",
+            "meeting_id": meeting_id,
+            "correction_text": correction_text,
+            "source_document": source_document,
+            "source_excerpt": source_excerpt,
+        }
+        await self._queue.put(item)
+        logger.debug(
+            "Enqueued fact_check correction for meeting=%s", meeting_id
+        )
+
     async def process_all(self) -> None:
         """
         Drain the queue sequentially, processing one request at a time.

@@ -13,5 +13,5 @@ pause_reason:
 # task4  — Interrupt Handling + Event Bus (17 schemas)              status: complete
 # task5  — Rolling Summaries + Context Coherence                    status: complete
 # task6  — Meeting Access Control (FR-058–FR-074)                   status: complete
-# task7  — Proactive Fact-Checking (FR-078–FR-084)                  status: pending
+# task7  — Proactive Fact-Checking (FR-078–FR-084)                  status: complete
 # task8  — AI Teammate Reasoning (FR-085–FR-088)                    status: pending
