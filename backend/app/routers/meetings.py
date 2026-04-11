@@ -482,3 +482,90 @@ async def end_meeting(
         state=MeetingState.ENDED,
         message="Meeting ended. Processing your meeting report...",
     )
+
+
+# ---------------------------------------------------------------------------
+# Action item editing (FR-046)
+# ---------------------------------------------------------------------------
+
+class ActionItemResponse(BaseModel):
+    id: str
+    meeting_id: str
+    description: str
+    assignee: str | None = None
+    deadline: str | None = None
+    is_edited: bool
+    created_at: datetime
+
+
+class ActionItemPatch(BaseModel):
+    description: str | None = None
+    assignee: str | None = None
+    deadline: str | None = None
+
+
+@router.patch("/{meeting_id}/action-items/{item_id}", response_model=ActionItemResponse)
+async def patch_action_item(
+    meeting_id: str,
+    item_id: str,
+    body: ActionItemPatch,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Edit an action item.
+
+    Any authenticated meeting participant (not host-only) may edit (FR-046).
+    Only provided fields are updated; others remain unchanged.
+    Sets is_edited=True on first manual edit.
+    """
+    db = get_database()
+
+    try:
+        meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid meeting ID")
+
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    user_oid = ObjectId(current_user["id"])
+    if user_oid not in meeting.get("participant_ids", []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only meeting participants can edit action items",
+        )
+
+    try:
+        action_item = await db.action_items.find_one(
+            {"_id": ObjectId(item_id), "meeting_id": meeting_id}
+        )
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action item ID")
+
+    if not action_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action item not found")
+
+    # Build update with only provided fields
+    update_fields: dict = {"is_edited": True}
+    if body.description is not None:
+        update_fields["description"] = body.description
+    if body.assignee is not None:
+        update_fields["assignee"] = body.assignee
+    if body.deadline is not None:
+        update_fields["deadline"] = body.deadline
+
+    await db.action_items.update_one(
+        {"_id": ObjectId(item_id)},
+        {"$set": update_fields},
+    )
+
+    updated = await db.action_items.find_one({"_id": ObjectId(item_id)})
+    return ActionItemResponse(
+        id=str(updated["_id"]),
+        meeting_id=updated["meeting_id"],
+        description=updated["description"],
+        assignee=updated.get("assignee"),
+        deadline=updated.get("deadline"),
+        is_edited=updated.get("is_edited", False),
+        created_at=updated["created_at"],
+    )

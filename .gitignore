@@ -24,3 +24,31 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Claude Code
+.claude/settings.local.json
+.claude/todos/
+
+# Python
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# MongoDB
+*.bson
+
+# Redis
+dump.rdb
+
+# Uploads (local dev only)
+uploads/
+tmp/
+
+# Test artifacts
+test-results/
+coverage/

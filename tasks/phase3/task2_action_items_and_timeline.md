@@ -63,3 +63,8 @@ Make AI-generated action items editable by all meeting participants. Build the `
 ## Status
 
 pending
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

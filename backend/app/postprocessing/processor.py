@@ -51,6 +51,13 @@ GENERATE_TITLE_SYSTEM_PROMPT = (
     "Return JSON with keys: title, summary."
 )
 
+GENERATE_TIMELINE_SYSTEM_PROMPT = (
+    "Segment this meeting transcript into topics with timestamps. "
+    "Return a JSON array of objects with keys: timestamp (string, e.g. '00:00'), topic (string). "
+    "If no clear timestamps exist in the transcript, estimate based on transcript position. "
+    "Return at least one segment."
+)
+
 
 def _build_transcript_text(turns: list[dict]) -> str:
     """Format transcript turns as plain text for LLM prompts."""
@@ -201,7 +208,22 @@ async def run(meeting_id: str) -> None:
                 result = await db.action_items.insert_one(doc)
                 action_item_ids.append(result.inserted_id)
 
-        # Store summary, title, decisions, action item IDs on Meeting
+        # Generate timeline
+        timeline: list[dict] = []
+        if transcript_text:
+            raw_timeline = await _call_claude(
+                GENERATE_TIMELINE_SYSTEM_PROMPT,
+                f"Transcript:\n{transcript_text}",
+            )
+            parsed_timeline = _parse_json_list(raw_timeline, [])
+            if isinstance(parsed_timeline, list):
+                timeline = [
+                    {"timestamp": str(item.get("timestamp") or "00:00"), "topic": str(item.get("topic") or "")}
+                    for item in parsed_timeline
+                    if isinstance(item, dict)
+                ]
+
+        # Store summary, title, decisions, action item IDs, timeline on Meeting
         await db.meetings.update_one(
             {"_id": ObjectId(meeting_id)},
             {
@@ -210,6 +232,7 @@ async def run(meeting_id: str) -> None:
                     "summary": summary,
                     "decisions": decisions,
                     "action_item_ids": action_item_ids,
+                    "timeline": timeline,
                 }
             },
         )

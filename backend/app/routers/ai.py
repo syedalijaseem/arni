@@ -304,6 +304,75 @@ async def extract_actions(body: AIExtractActionsRequest) -> AIExtractActionsResp
     return AIExtractActionsResponse(action_items=action_items)
 
 
+class AITimelineRequest(BaseModel):
+    meeting_id: str
+    transcript_text: str
+
+
+class AITimelineItem(BaseModel):
+    timestamp: str
+    topic: str
+
+
+class AITimelineResponse(BaseModel):
+    timeline: list[AITimelineItem]
+
+
+@router.post("/timeline", response_model=AITimelineResponse)
+async def generate_timeline(body: AITimelineRequest) -> AITimelineResponse:
+    """
+    Generate a timestamped topic segmentation timeline from a meeting transcript.
+
+    Returns a JSON array of {timestamp, topic} objects sorted chronologically.
+    SRS ref: FR-047.
+    """
+    import json
+    from app.config import get_settings as _get_settings
+    import anthropic as _anthropic
+
+    settings = _get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service not configured",
+        )
+
+    system_prompt = (
+        "Segment this meeting transcript into topics with timestamps. "
+        "Return a JSON array of objects with keys: timestamp (string, e.g. '00:00'), topic (string). "
+        "If no clear timestamps exist in the transcript, estimate based on transcript position. "
+        "Return at least one segment."
+    )
+
+    try:
+        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+        )
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
+        items = json.loads(raw)
+        if not isinstance(items, list):
+            items = []
+        timeline = [
+            AITimelineItem(
+                timestamp=str(item.get("timestamp") or "00:00"),
+                topic=str(item.get("topic") or ""),
+            )
+            for item in items
+            if isinstance(item, dict)
+        ]
+    except Exception as exc:
+        logger.error("timeline generation error: %s", exc)
+        timeline = []
+
+    return AITimelineResponse(timeline=timeline)
+
+
 @router.post("/fact-check", response_model=AIFactCheckResponse)
 async def fact_check(body: AIFactCheckRequest) -> AIFactCheckResponse:
     """
