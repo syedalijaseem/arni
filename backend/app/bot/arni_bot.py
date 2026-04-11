@@ -194,7 +194,7 @@ class ArniBot:
                 smart_format=True,
                 filler_words=False,
                 endpointing=300,
-                utterance_end_ms=800,
+                utterance_end_ms=1000,
                 vad_events=True,
             )
 
