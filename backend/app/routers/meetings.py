@@ -1,8 +1,11 @@
+import logging
 from datetime import datetime, timezone
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 import secrets
+
+logger = logging.getLogger(__name__)
 
 from app.config import get_settings
 from app.database import get_database
@@ -569,3 +572,119 @@ async def patch_action_item(
         is_edited=updated.get("is_edited", False),
         created_at=updated["created_at"],
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /meetings/{meeting_id}/ask — Post-meeting Q&A (RAG, FR-053–FR-056)
+# ---------------------------------------------------------------------------
+
+
+class MeetingAskRequest(BaseModel):
+    question: str
+
+
+@router.post("/{meeting_id}/ask")
+async def ask_meeting(
+    meeting_id: str,
+    body: MeetingAskRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Post-meeting Q&A endpoint backed by the unified RAG pipeline.
+
+    - Auth: participant-only (403 for non-participants)
+    - Delegates to /ai/qa with rate limiting (RL-003)
+    - Returns answer + source attribution
+    """
+    db = get_database()
+    user_id = current_user["id"]
+
+    # Fetch meeting and verify participant access
+    meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found.")
+
+    participant_ids = [str(pid) for pid in meeting.get("participant_ids", [])]
+    host_id = str(meeting.get("host_id", ""))
+    if user_id not in participant_ids and user_id != host_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    # Delegate to the /ai/qa handler
+    import httpx
+    from app.config import get_settings
+
+    settings = get_settings()
+    # Internal call to the QA service — reuse the RAG pipeline directly
+    from app.rag.retriever import retrieve
+    from app.rag.retriever import QA_RATE_LIMIT
+
+    rate_key = {"meeting_id": meeting_id, "user_id": user_id}
+    rate_doc = await db.qa_rate_limits.find_one(rate_key)
+    current_count = rate_doc["count"] if rate_doc else 0
+
+    if current_count >= QA_RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail="You have reached the maximum of 20 questions per meeting.",
+        )
+
+    await db.qa_rate_limits.update_one(
+        rate_key,
+        {"$inc": {"count": 1}},
+        upsert=True,
+    )
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="AI service not configured.")
+
+    chunks = await retrieve(meeting_id, body.question, top_k=5)
+
+    context_parts: list[str] = []
+    for i, chunk in enumerate(chunks, 1):
+        source = chunk.get("source", "unknown")
+        text = chunk.get("text", "")
+        attr = chunk.get("attribution", {})
+        if source == "transcript":
+            speaker = attr.get("speaker_name") or "Participant"
+            ts = attr.get("timestamp") or ""
+            label = f"[Transcript — {speaker}{', ' + ts if ts else ''}]"
+        else:
+            filename = attr.get("filename") or "document"
+            label = f"[Document — {filename}]"
+        context_parts.append(f"{i}. {label}\n{text}")
+
+    context_text = "\n\n".join(context_parts) if context_parts else "No relevant context found."
+    system_prompt = (
+        "You are a helpful meeting assistant. Answer the user's question based solely on "
+        "the provided context from meeting transcripts and uploaded documents. "
+        "If the context does not contain enough information, say so clearly."
+    )
+    user_message = f"Context:\n{context_text}\n\nQuestion: {body.question}"
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        answer = message.content[0].text
+    except Exception as exc:
+        logger.error("Meeting ask Claude call failed: %s", exc)
+        answer = "Sorry, I was unable to generate an answer at this time."
+
+    sources = []
+    for chunk in chunks:
+        source = chunk.get("source", "unknown")
+        text = chunk.get("text", "")
+        attr = chunk.get("attribution", {})
+        if source == "transcript":
+            attribution_str = attr.get("speaker_name") or "Participant"
+        else:
+            attribution_str = attr.get("filename") or "document"
+        excerpt = text[:200] + "..." if len(text) > 200 else text
+        sources.append({"source": source, "excerpt": excerpt, "attribution": attribution_str})
+
+    return {"answer": answer, "sources": sources}

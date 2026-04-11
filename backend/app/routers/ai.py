@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+QA_RATE_LIMIT = 20  # RL-003: max 20 queries per meeting per user
+QA_RATE_LIMIT_MESSAGE = (
+    "You have reached the maximum of 20 questions per meeting. "
+    "No further questions can be answered for this meeting."
+)
+
 RATE_LIMIT_MESSAGE = (
     "Arni has reached the maximum number of responses for this meeting. "
     "Please continue the conversation manually."
@@ -371,6 +377,136 @@ async def generate_timeline(body: AITimelineRequest) -> AITimelineResponse:
         timeline = []
 
     return AITimelineResponse(timeline=timeline)
+
+
+class AIQARequest(BaseModel):
+    meeting_id: str
+    question: str
+    user_id: str
+
+
+class AIQASource(BaseModel):
+    source: str
+    excerpt: str
+    attribution: str
+
+
+class AIQAResponse(BaseModel):
+    answer: str
+    sources: list[AIQASource]
+
+
+@router.post("/qa", response_model=AIQAResponse)
+async def qa(body: AIQARequest) -> AIQAResponse:
+    """
+    Post-meeting Q&A using unified RAG across transcript and document chunks.
+
+    - Enforces RL-003: max 20 queries per meeting per user (429 on exceed)
+    - Retrieves top-k chunks from both transcript_chunks and document_chunks
+    - Generates an answer with full source attribution via Claude
+    """
+    from app.config import get_settings as _get_settings
+    from app.rag.retriever import retrieve
+
+    db = get_database()
+    settings = _get_settings()
+
+    # Check and increment rate limit counter (RL-003)
+    rate_key = {"meeting_id": body.meeting_id, "user_id": body.user_id}
+    rate_doc = await db.qa_rate_limits.find_one(rate_key)
+    current_count = rate_doc["count"] if rate_doc else 0
+
+    if current_count >= QA_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=QA_RATE_LIMIT_MESSAGE,
+        )
+
+    # Increment counter
+    await db.qa_rate_limits.update_one(
+        rate_key,
+        {"$inc": {"count": 1}},
+        upsert=True,
+    )
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service not configured",
+        )
+
+    # Retrieve relevant chunks
+    chunks = await retrieve(body.meeting_id, body.question, top_k=5)
+
+    # Build context from retrieved chunks with source labels
+    context_parts: list[str] = []
+    for i, chunk in enumerate(chunks, 1):
+        source = chunk.get("source", "unknown")
+        text = chunk.get("text", "")
+        attr = chunk.get("attribution", {})
+
+        if source == "transcript":
+            speaker = attr.get("speaker_name") or "Participant"
+            ts = attr.get("timestamp") or ""
+            label = f"[Transcript — {speaker}{', ' + ts if ts else ''}]"
+        else:
+            filename = attr.get("filename") or "document"
+            chunk_idx = attr.get("chunk_index", 0)
+            label = f"[Document — {filename}, chunk {chunk_idx}]"
+
+        context_parts.append(f"{i}. {label}\n{text}")
+
+    context_text = "\n\n".join(context_parts) if context_parts else "No relevant context found."
+
+    system_prompt = (
+        "You are a helpful meeting assistant. Answer the user's question based solely on "
+        "the provided context from meeting transcripts and uploaded documents. "
+        "When citing information, specify whether it came from the transcript or a document. "
+        "If the context does not contain enough information to answer, say so clearly."
+    )
+    user_message = (
+        f"Context:\n{context_text}\n\n"
+        f"Question: {body.question}"
+    )
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        answer = message.content[0].text
+    except Exception as exc:
+        logger.error("QA Claude call failed: %s", exc)
+        answer = "Sorry, I was unable to generate an answer at this time."
+
+    # Build source attribution list
+    sources: list[AIQASource] = []
+    for chunk in chunks:
+        source = chunk.get("source", "unknown")
+        text = chunk.get("text", "")
+        attr = chunk.get("attribution", {})
+
+        if source == "transcript":
+            speaker = attr.get("speaker_name") or "Participant"
+            ts = attr.get("timestamp") or ""
+            attribution_str = f"{speaker}{', ' + ts if ts else ''}"
+        else:
+            filename = attr.get("filename") or "document"
+            chunk_idx = attr.get("chunk_index", 0)
+            attribution_str = f"{filename} (chunk {chunk_idx})"
+
+        excerpt = text[:200] + "..." if len(text) > 200 else text
+        sources.append(AIQASource(
+            source=source,
+            excerpt=excerpt,
+            attribution=attribution_str,
+        ))
+
+    return AIQAResponse(answer=answer, sources=sources)
 
 
 @router.post("/fact-check", response_model=AIFactCheckResponse)

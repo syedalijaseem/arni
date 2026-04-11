@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.database import get_database, get_redis
 from app.events.publisher import publish_meeting_processed, publish_meeting_ended
 from app.models.meeting import MeetingState
+from app.rag.embedder import embed_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +237,13 @@ async def run(meeting_id: str) -> None:
                 }
             },
         )
+
+        # Embed transcript chunks for post-meeting RAG Q&A (FR-045)
+        try:
+            await embed_transcript(meeting_id)
+        except Exception as exc:
+            # Non-fatal: embedding failure should not block processing completion
+            logger.warning("Transcript embedding failed for meeting=%s: %s", meeting_id, exc)
 
         # Step 6: Set meeting state to Processed
         await db.meetings.update_one(
