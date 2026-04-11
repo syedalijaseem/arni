@@ -56,10 +56,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 20
     MAX_DOCS_PER_MEETING: int = 10
 
-    # ElevenLabs (TTS)
+    # ElevenLabs
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_VOICE_ID: str = "21m00Tcm4TlvDq8ikWAM"
     ELEVENLABS_MODEL: str = "eleven_flash_v2_5"
+    ELEVENLABS_AGENT_ID: str = ""
 
     # Fact Check
     FACT_CHECK_CONFIDENCE_THRESHOLD: float = 0.85

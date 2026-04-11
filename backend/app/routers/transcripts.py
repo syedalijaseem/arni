@@ -1,3 +1,13 @@
+"""
+Transcript WebSocket gateway and persistence.
+
+With ElevenLabs Conversational AI, the bot handles STT/LLM/TTS internally.
+This module only handles:
+  - WebSocket broadcast for live transcript display
+  - MongoDB persistence for final transcripts
+  - Historical transcript retrieval API
+"""
+
 import logging
 from typing import Dict, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -53,32 +63,12 @@ async def handle_bot_transcript(transcript: TranscriptCreate):
 
 
 async def handle_wake_word(meeting_id: str, result: WakeWordResult):
-    """Run the AI response pipeline. Called by ArniBot._flush_buffer."""
-    logger.info("Wake word in %s from %s: %r", meeting_id, result.speaker_name, result.command)
+    """Legacy callback — kept for API compatibility.
 
-    await manager.broadcast(meeting_id, {
-        "type": "wake_word",
-        "speaker_id": result.speaker_id,
-        "speaker_name": result.speaker_name,
-        "command": result.command,
-        "timestamp": result.timestamp,
-    })
-
-    try:
-        from app.ai.ai_service import ai_respond
-        from app.ai.context_manager import build_context
-
-        context = await build_context(meeting_id)
-        response = await ai_respond(meeting_id, result.command, context)
-
-        await manager.broadcast(meeting_id, {
-            "type": "ai_response",
-            "text": response.get("response_text", ""),
-            "triggered_by": result.speaker_name,
-            "command": result.command,
-        })
-    except Exception as exc:
-        logger.error("AI pipeline failed for %s: %s", meeting_id, exc)
+    With ElevenLabs Conversational AI, wake detection and response
+    are handled internally by the agent. This is a no-op.
+    """
+    pass
 
 
 @router.websocket("/{meeting_id}/ws")
