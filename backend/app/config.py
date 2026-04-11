@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     )
     WAKE_COOLDOWN_SECONDS: int = 5
     CONVERSATION_WINDOW_SECONDS: int = 30
+    UTTERANCE_SILENCE_MS: int = 2000
+    QUEUE_MAX_AGE_MS: int = 3000
 
     # AI / Claude
     ANTHROPIC_API_KEY: str = ""

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Dict, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from bson import ObjectId
@@ -105,6 +106,18 @@ async def handle_wake_word(meeting_id: str, result: WakeWordResult):
 async def _trigger_ai_response(meeting_id: str, result: WakeWordResult):
     """Run the AI response pipeline in the background after wake-word detection."""
     try:
+        # Fix 5: discard stale requests (older than QUEUE_MAX_AGE_MS)
+        from app.config import get_settings
+        settings = get_settings()
+        age_s = time.time() - result.timestamp
+        max_age_s = settings.QUEUE_MAX_AGE_MS / 1000.0
+        if age_s > max_age_s:
+            logger.info(
+                "Discarding stale request for meeting %s (%.1fs old, max %.1fs): %r",
+                meeting_id, age_s, max_age_s, result.command,
+            )
+            return
+
         from app.ai.ai_service import ai_respond
         from app.ai.context_manager import build_context
 
