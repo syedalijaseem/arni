@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # OpenAI (Embeddings)
     OPENAI_API_KEY: str = ""
 
+    # Document Upload
+    MAX_UPLOAD_SIZE_MB: int = 20
+    MAX_DOCS_PER_MEETING: int = 10
+
     # ElevenLabs (TTS)
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_VOICE_ID: str = ""

@@ -8,6 +8,7 @@ from app.routers.auth import router as auth_router
 from app.routers.meetings import router as meetings_router
 from app.routers.transcripts import router as transcripts_router
 from app.routers.ai import router as ai_router
+from app.routers.documents import router as documents_router
 import daily
 
 settings = get_settings()
@@ -42,6 +43,7 @@ app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(meetings_router, prefix="/meetings", tags=["meetings"])
 app.include_router(transcripts_router, prefix="/transcripts", tags=["transcripts"])
 app.include_router(ai_router, prefix="/ai", tags=["ai"])
+app.include_router(documents_router, prefix="/meetings", tags=["documents"])
 
 
 @app.get("/health")

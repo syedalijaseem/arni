@@ -2,13 +2,13 @@ current_phase: phase2
 phase1: complete
 phase2: in_progress
 phase3: pending
-last_updated: 2026-04-11T17:00:00Z
+last_updated: 2026-04-11T17:30:00Z
 loop_status: running
 pause_reason:
 
 # Phase 2 Task Register
 # task1  — AI Response Generation (Claude integration)              status: complete
-# task2  — Document Upload Pipeline (FR-057a–FR-057i)               status: pending
+# task2  — Document Upload Pipeline (FR-057a–FR-057i)               status: complete
 # task3  — Voice Response TTS (ElevenLabs + audio injection)        status: pending
 # task4  — Interrupt Handling + Event Bus (17 schemas)              status: pending
 # task5  — Rolling Summaries + Context Coherence                    status: pending
