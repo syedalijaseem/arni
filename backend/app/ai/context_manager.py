@@ -93,45 +93,57 @@ async def build_reasoning_context(
 
 
 async def _retrieve_document_context(
-    meeting_id: str, query: str, top_k: int = 5,
+    meeting_id: str, query: str, top_k: int = 10,
 ) -> str:
-    """Use the RAG retriever to fetch relevant document chunks.
+    """Retrieve relevant document chunks for the meeting.
 
-    Falls back to a simple MongoDB scan if the retriever fails
-    (e.g. embeddings API unavailable or vector index not configured).
+    Tries vector search first, falls back to simple MongoDB scan.
+    Returns formatted string of top-k chunks with source labels.
     """
-    # Try the proper vector-search retriever first
+    db = get_database()
+
+    # Always try vector-search retriever first
     try:
         from app.rag.retriever import retrieve
         results = await retrieve(meeting_id, query, top_k=top_k)
         if results:
             parts = []
             for r in results:
-                source = r.get("source", "document")
                 attr = r.get("attribution", {})
-                label = attr.get("filename") or attr.get("speaker_name") or source
+                label = attr.get("filename") or attr.get("speaker_name") or r.get("source", "document")
                 text = r.get("text", "")
                 if text:
                     parts.append(f"[{label}]: {text}")
             if parts:
+                logger.info("RAG retrieved %d chunks for meeting=%s query=%r",
+                            len(parts), meeting_id, query[:80])
                 return "\n".join(parts)
     except Exception as exc:
-        logger.warning("RAG retriever failed, falling back to simple scan: %s", exc)
+        logger.warning("RAG vector search failed: %s", exc)
 
-    # Fallback: grab first N chunks for this meeting from document_chunks
+    # Fallback: simple scan of all document chunks for this meeting
     try:
-        db = get_database()
-        doc_cursor = db.document_chunks.find({"meeting_id": meeting_id})
+        chunk_count = await db.document_chunks.count_documents({"meeting_id": meeting_id})
+        if chunk_count == 0:
+            logger.info("No document chunks found for meeting=%s", meeting_id)
+            return ""
+
+        doc_cursor = db.document_chunks.find(
+            {"meeting_id": meeting_id},
+        ).limit(top_k)
         doc_chunks = await doc_cursor.to_list(length=top_k)
-        if doc_chunks:
-            parts = []
-            for chunk in doc_chunks:
-                name = chunk.get("filename", "Document")
-                text = chunk.get("text", "")
-                if text:
-                    parts.append(f"[{name}]: {text}")
-            return "\n".join(parts)
+
+        parts = []
+        for chunk in doc_chunks:
+            name = chunk.get("filename", "Document")
+            text = chunk.get("text", "")
+            if text:
+                parts.append(f"[{name}]: {text}")
+
+        logger.info("Fallback scan retrieved %d chunks (of %d total) for meeting=%s",
+                     len(parts), chunk_count, meeting_id)
+        return "\n".join(parts)
     except Exception as exc:
-        logger.error("Document chunk fallback also failed: %s", exc)
+        logger.error("Document chunk fallback failed: %s", exc)
 
     return ""

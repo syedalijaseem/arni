@@ -1,29 +1,30 @@
 """
 ArniBot — Passive/Active mode meeting assistant on Daily.co.
 
+STT: ElevenLabs Scribe v2 Realtime (replaces Deepgram)
+TTS: ElevenLabs Flash v2.5 (unchanged)
+LLM: Claude Sonnet (unchanged)
+
 Passive Mode (always on):
-  - Deepgram transcribes all speech
+  - Scribe transcribes all speech
   - Final transcripts saved to MongoDB + broadcast to WebSocket
   - Arni stays completely silent
 
 Active Mode (triggered by wake word or push-to-talk):
-  - Claude generates response using meeting context
+  - Claude generates response using meeting context + RAG docs
   - ElevenLabs Flash speaks the response
   - Returns to Passive Mode immediately after
 """
 
 import asyncio
+import base64
 import logging
 import re
 import time
 from typing import Dict, Any
 
 import daily
-from deepgram import (
-    DeepgramClient,
-    LiveTranscriptionEvents,
-    LiveOptions,
-)
+from elevenlabs.realtime.scribe import ScribeRealtime, AudioFormat, CommitStrategy
 
 from app.config import get_settings
 from app.models.transcript import TranscriptCreate
@@ -48,12 +49,12 @@ class ArniEventHandler(daily.EventHandler):
         name = participant["info"].get("userName", "")
         uid = participant["info"].get("userId") or participant.get("user_id", name)
         self.bot.participants[sid] = {"user_id": uid, "name": name or uid}
-        asyncio.run_coroutine_threadsafe(self.bot._start_deepgram(sid), self.bot.loop)
+        asyncio.run_coroutine_threadsafe(self.bot._start_stt(sid), self.bot.loop)
 
     def on_participant_left(self, participant, reason):
         sid = participant["id"]
         self.bot.participants.pop(sid, None)
-        asyncio.run_coroutine_threadsafe(self.bot._stop_deepgram(sid), self.bot.loop)
+        asyncio.run_coroutine_threadsafe(self.bot._stop_stt(sid), self.bot.loop)
 
 
 class ArniBot:
@@ -68,7 +69,6 @@ class ArniBot:
         self.settings = get_settings()
         self.event_handler = ArniEventHandler(self)
         self.client = daily.CallClient(event_handler=self.event_handler)
-        self.deepgram = DeepgramClient(self.settings.DEEPGRAM_API_KEY)
 
         self.virtual_mic = daily.Daily.create_microphone_device(
             "arni-mic", sample_rate=16000, channels=1, non_blocking=True,
@@ -79,111 +79,130 @@ class ArniBot:
         })
 
         self.participants: Dict[str, dict] = {}
-        self.dg_connections: Dict[str, Any] = {}
+        self.stt_connections: Dict[str, Any] = {}
         self.AI_AUDIO_TRACK_TAG = AI_AUDIO_TRACK_TAG
         self.wake_word_detector = WakeWordDetector()
 
-        # State: busy = processing Claude or speaking TTS
+        # State
         self._busy = False
         self._cancel = asyncio.Event()
         self._tts_stop_time: float = 0.0
 
-        # Utterance buffer per speaker (groups fragmented speech)
+        # Utterance buffer per speaker
         self._buffers: Dict[str, dict] = {}
         self._silence_s: float = self.settings.UTTERANCE_SILENCE_MS / 1000.0
 
         self.loop = asyncio.get_running_loop()
 
-    # ── Deepgram STT ─────────────────────────────────────────────────
+    # ── ElevenLabs Scribe v2 Realtime STT ────────────────────────────
 
-    async def _start_deepgram(self, participant_id: str):
+    async def _start_stt(self, participant_id: str):
+        """Start ElevenLabs Scribe realtime STT for a participant."""
         try:
-            dg = self.deepgram.listen.asyncwebsocket.v("1")
+            scribe = ScribeRealtime(
+                api_key=self.settings.ELEVENLABS_API_KEY,
+            )
+            conn = await scribe.connect({
+                "model_id": "scribe_v2_realtime",
+                "audio_format": AudioFormat.PCM_16000,
+                "sample_rate": 16000,
+                "commit_strategy": CommitStrategy.VAD,
+                "language_code": "en",
+            })
 
-            async def on_message(_conn, result, **kwargs):
-                if not result.channel.alternatives:
-                    return
-                text = result.channel.alternatives[0].transcript
+            p = self.participants.get(participant_id, {})
+            speaker_id = p.get("user_id", participant_id)
+            speaker_name = p.get("name", speaker_id)
+
+            # Handle partial (interim) transcripts
+            def on_partial(data):
+                text = data.get("text", "")
                 if not text:
                     return
+                asyncio.run_coroutine_threadsafe(
+                    self.broadcast_callback(TranscriptCreate(
+                        meeting_id=self.meeting_id,
+                        speaker_id=speaker_id,
+                        speaker_name=speaker_name,
+                        text=text,
+                        is_final=False,
+                    )),
+                    self.loop,
+                )
 
-                is_final = result.is_final
-                p = self.participants.get(participant_id, {})
-                speaker_id = p.get("user_id", participant_id)
-                speaker_name = p.get("name", speaker_id)
-
-                # PASSIVE MODE: always broadcast + save final transcripts
-                await self.broadcast_callback(TranscriptCreate(
-                    meeting_id=self.meeting_id,
-                    speaker_id=speaker_id,
-                    speaker_name=speaker_name,
-                    text=text,
-                    is_final=is_final,
-                ))
-
-                # Only process FINAL transcripts for active mode
-                if not is_final:
+            # Handle committed (final) transcripts
+            def on_committed(data):
+                text = data.get("text", "")
+                if not text:
                     return
-                if speaker_id == "arni":
-                    return
-                if not self.wake_word_callback:
-                    return
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_final_transcript(
+                        speaker_id, speaker_name, text,
+                    ),
+                    self.loop,
+                )
 
-                # Discard overlap speech after TTS stops (500ms window)
-                if time.time() < self._tts_stop_time + 0.5:
-                    return
+            conn.on("partial_transcript", on_partial)
+            conn.on("committed_transcript", on_committed)
 
-                # Stop phrase — always checked, even when busy
-                if _STOP_RE.match(text.strip()):
-                    if self._busy:
-                        self._cancel.set()
-                    self._clear_buffer(speaker_id)
-                    return
+            self.stt_connections[participant_id] = conn
 
-                # Skip if busy (no queue)
-                if self._busy:
-                    return
-
-                # Buffer the transcript, wait for silence
-                self._append_buffer(speaker_id, speaker_name, text)
-
-            dg.on(LiveTranscriptionEvents.Transcript, on_message)
-
-            ok = await dg.start(LiveOptions(
-                model="nova-2",
-                language="en-US",
-                encoding="linear16",
-                channels=1,
-                sample_rate=16000,
-                interim_results=True,
-                punctuate=True,
-                smart_format=True,
-                filler_words=False,
-                endpointing=300,
-                utterance_end_ms=1000,
-                vad_events=True,
-            ))
-            if not ok:
-                logger.error("Failed to connect to Deepgram")
-                return
-
-            self.dg_connections[participant_id] = dg
-
+            # Forward Daily.co audio frames to Scribe
             def on_audio(pid, audio_data, audio_source=None):
-                if dg and audio_data.audio_frames:
+                if conn and audio_data.audio_frames:
+                    b64 = base64.b64encode(audio_data.audio_frames).decode()
                     asyncio.run_coroutine_threadsafe(
-                        dg.send(audio_data.audio_frames), self.loop
+                        conn.send({"audio_base_64": b64}),
+                        self.loop,
                     )
 
             self.client.set_audio_renderer(participant_id, on_audio)
-        except Exception as e:
-            logger.error("Deepgram setup failed for %s: %s", participant_id, e)
+            logger.info("Scribe STT started for participant %s", participant_id)
 
-    async def _stop_deepgram(self, participant_id: str):
+        except Exception as e:
+            logger.error("Scribe STT setup failed for %s: %s", participant_id, e)
+
+    async def _stop_stt(self, participant_id: str):
+        """Stop Scribe STT for a participant."""
         self.client.set_audio_renderer(participant_id, None)
-        dg = self.dg_connections.pop(participant_id, None)
-        if dg:
-            await dg.finish()
+        conn = self.stt_connections.pop(participant_id, None)
+        if conn:
+            await conn.close()
+
+    async def _handle_final_transcript(self, speaker_id: str, speaker_name: str, text: str):
+        """Process a final (committed) transcript from Scribe."""
+        # PASSIVE MODE: always broadcast + save
+        await self.broadcast_callback(TranscriptCreate(
+            meeting_id=self.meeting_id,
+            speaker_id=speaker_id,
+            speaker_name=speaker_name,
+            text=text,
+            is_final=True,
+        ))
+
+        # Never process Arni's own speech
+        if speaker_id == "arni":
+            return
+        if not self.wake_word_callback:
+            return
+
+        # Discard overlap speech after TTS stops
+        if time.time() < self._tts_stop_time + 0.5:
+            return
+
+        # Stop phrase check
+        if _STOP_RE.match(text.strip()):
+            if self._busy:
+                self._cancel.set()
+            self._clear_buffer(speaker_id)
+            return
+
+        # Skip if busy
+        if self._busy:
+            return
+
+        # Buffer the transcript
+        self._append_buffer(speaker_id, speaker_name, text)
 
     # ── Utterance buffer ─────────────────────────────────────────────
 
@@ -216,14 +235,13 @@ class ArniBot:
         if self._busy:
             return
 
-        # WAKE WORD IS THE ONLY GATE
+        # Wake word is the only gate
         result = self.wake_word_detector.detect(
             buf["text"], speaker_id, buf["name"],
         )
         if not result:
             return
 
-        # ACTIVE MODE: trigger AI response
         logger.info("Wake: %s said %r", buf["name"], result.command)
         self._busy = True
         try:
@@ -264,6 +282,6 @@ class ArniBot:
     async def leave(self):
         logger.info("Arni Bot leaving meeting %s", self.meeting_id)
         self.client.leave()
-        for pid in list(self.dg_connections):
-            await self._stop_deepgram(pid)
+        for pid in list(self.stt_connections):
+            await self._stop_stt(pid)
         self.client.release()
