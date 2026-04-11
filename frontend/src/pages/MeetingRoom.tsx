@@ -97,6 +97,9 @@ function MeetingRoomContent() {
   const [wakeWordEvent, setWakeWordEvent] = useState<WakeWordEvent | null>(null);
   const wakeWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [arniState, setArniState] = useState<ArniState>("listening");
+  const [isRecordingPTT, setIsRecordingPTT] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     if (!meeting?.id) return;
@@ -260,6 +263,56 @@ function MeetingRoomContent() {
     navigate("/dashboard");
   }
 
+  async function startPTT() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0 || !meeting?.id) return;
+
+        setArniState("processing");
+        try {
+          const form = new FormData();
+          form.append("meeting_id", meeting.id);
+          form.append("audio", blob, "recording.webm");
+
+          const res = await fetch("/api/ai/push-to-talk", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: form,
+          });
+
+          if (!res.ok) throw new Error("Push-to-talk failed");
+          setArniState("speaking");
+          setTimeout(() => setArniState("listening"), 3000);
+        } catch (err) {
+          setArniState("listening");
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecordingPTT(true);
+    } catch (err) {
+      // Mic permission denied or unavailable
+    }
+  }
+
+  function stopPTT() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecordingPTT(false);
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -396,6 +449,20 @@ function MeetingRoomContent() {
             onClick={toggleCamera}
           >
             {isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
+          </Button>
+
+          <Button
+            className={[
+              "ml-4 px-6 py-3 font-semibold transition-all select-none",
+              isRecordingPTT
+                ? "bg-red-600 hover:bg-red-700 text-white animate-pulse"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white",
+            ].join(" ")}
+            onPointerDown={startPTT}
+            onPointerUp={stopPTT}
+            onPointerLeave={stopPTT}
+          >
+            {isRecordingPTT ? "Recording..." : "Ask Arni"}
           </Button>
         </div>
       </footer>

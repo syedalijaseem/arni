@@ -1,8 +1,8 @@
 """
 AI Service — Claude Sonnet streaming integration.
 
-Streams Claude's response, splits into sentences, TTS each sentence
-immediately, plays audio while Claude still generates the rest.
+Streams Claude's response, splits into sentences, TTS each sentence,
+plays audio while Claude still generates the rest.
 """
 
 import logging

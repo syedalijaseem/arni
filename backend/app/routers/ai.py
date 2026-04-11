@@ -9,7 +9,7 @@ Rate limit and cooldown enforcement happens inside MeetingQueue.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
 from pydantic import BaseModel
 
 from app.ai.context_manager import build_context
@@ -17,6 +17,8 @@ from app.ai.ai_service import ai_respond, ai_summarize
 from app.ai.response_queue import get_or_create_queue, RATE_LIMIT_SENTINEL
 from app.ai.fact_checker import fact_checker
 from app.database import get_database
+from app.tts.elevenlabs_client import text_to_speech
+from app.tts.audio_injection import inject_audio
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,55 @@ class AIFactCheckResponse(BaseModel):
     correction_text: str | None = None
     source_document: str | None = None
     source_excerpt: str | None = None
+
+
+@router.post("/push-to-talk")
+async def push_to_talk(
+    meeting_id: str = Form(...),
+    audio: UploadFile = File(...),
+):
+    """Push-to-talk: transcribe audio clip, send to Claude, return TTS audio.
+
+    Accepts a recorded audio blob from the frontend, transcribes it via
+    Deepgram, builds meeting context, calls Claude, synthesises TTS,
+    and injects the audio into the Daily.co meeting.
+    """
+    from app.config import get_settings
+    from deepgram import DeepgramClient, PrerecordedOptions
+
+    settings = get_settings()
+    audio_bytes = await audio.read()
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio")
+
+    # 1. Transcribe the audio clip via Deepgram
+    try:
+        dg = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        response = await dg.listen.asyncrest.v("1").transcribe_file(
+            {"buffer": audio_bytes, "mimetype": audio.content_type or "audio/webm"},
+            PrerecordedOptions(model="nova-2", smart_format=True, punctuate=True),
+        )
+        transcript = response.results.channels[0].alternatives[0].transcript
+    except Exception as exc:
+        logger.error("Push-to-talk transcription failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Transcription failed")
+
+    if not transcript or not transcript.strip():
+        return {"response_text": "", "transcript": ""}
+
+    # 2. Build context and call Claude
+    context = await build_context(meeting_id)
+    result = await ai_respond(meeting_id, transcript, context)
+    response_text = result.get("response_text", "")
+
+    # 3. TTS and inject into meeting
+    if response_text:
+        tts_audio = await text_to_speech(response_text)
+        if tts_audio:
+            await inject_audio(tts_audio, meeting_id)
+
+    return {"response_text": response_text, "transcript": transcript}
 
 
 @router.post("/respond", response_model=AIRespondResponse)
