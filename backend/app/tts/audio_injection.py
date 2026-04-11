@@ -32,6 +32,10 @@ async def inject_audio(audio_bytes: bytes, meeting_id: str, bot=None) -> None:
         return
 
     if bot is None:
+        from app.bot.bot_manager import bot_manager
+        bot = bot_manager.active_bots.get(meeting_id)
+
+    if bot is None:
         logger.info(
             "inject_audio: no bot instance for meeting %s — audio injection skipped (test/fallback mode)",
             meeting_id,

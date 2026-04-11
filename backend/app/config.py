@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Wake Word Detection
     WAKE_PHRASES: str = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
     WAKE_COOLDOWN_SECONDS: int = 5
+    CONVERSATION_WINDOW_SECONDS: int = 30
 
     # AI / Claude
     ANTHROPIC_API_KEY: str = ""
@@ -52,7 +53,8 @@ class Settings(BaseSettings):
 
     # ElevenLabs (TTS)
     ELEVENLABS_API_KEY: str = ""
-    ELEVENLABS_VOICE_ID: str = ""
+    ELEVENLABS_VOICE_ID: str = "21m00Tcm4TlvDq8ikWAM"
+    ELEVENLABS_MODEL: str = "eleven_flash_v2_5"
 
     # Fact Check
     FACT_CHECK_CONFIDENCE_THRESHOLD: float = 0.85

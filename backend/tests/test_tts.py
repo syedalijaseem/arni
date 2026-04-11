@@ -28,8 +28,9 @@ class TestTextToSpeech:
         with patch("app.tts.elevenlabs_client.get_settings") as mock_settings:
             mock_settings.return_value.ELEVENLABS_API_KEY = "test-key"
             mock_settings.return_value.ELEVENLABS_VOICE_ID = "test-voice"
+            mock_settings.return_value.ELEVENLABS_MODEL = "eleven_flash_v2_5"
 
-            with patch("app.tts.elevenlabs_client.ElevenLabs") as MockClient:
+            with patch("elevenlabs.client.ElevenLabs") as MockClient:
                 mock_instance = MagicMock()
                 MockClient.return_value = mock_instance
                 mock_instance.text_to_speech.convert.return_value = iter([fake_audio])
@@ -41,13 +42,15 @@ class TestTextToSpeech:
         assert len(result) > 0
 
     @pytest.mark.asyncio
-    async def test_returns_none_on_api_error(self):
-        """text_to_speech returns None when ElevenLabs raises an exception."""
+    async def test_returns_none_on_api_error_falls_back(self):
+        """When ElevenLabs fails and Deepgram also unavailable, returns None."""
         with patch("app.tts.elevenlabs_client.get_settings") as mock_settings:
             mock_settings.return_value.ELEVENLABS_API_KEY = "test-key"
             mock_settings.return_value.ELEVENLABS_VOICE_ID = "test-voice"
+            mock_settings.return_value.ELEVENLABS_MODEL = "eleven_flash_v2_5"
+            mock_settings.return_value.DEEPGRAM_API_KEY = ""
 
-            with patch("app.tts.elevenlabs_client.ElevenLabs") as MockClient:
+            with patch("elevenlabs.client.ElevenLabs") as MockClient:
                 mock_instance = MagicMock()
                 MockClient.return_value = mock_instance
                 mock_instance.text_to_speech.convert.side_effect = Exception("API error")
@@ -58,11 +61,13 @@ class TestTextToSpeech:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_api_key_missing(self):
-        """text_to_speech returns None when ELEVENLABS_API_KEY is not set."""
+    async def test_returns_none_when_both_api_keys_missing(self):
+        """text_to_speech returns None when both ElevenLabs and Deepgram keys are missing."""
         with patch("app.tts.elevenlabs_client.get_settings") as mock_settings:
             mock_settings.return_value.ELEVENLABS_API_KEY = ""
             mock_settings.return_value.ELEVENLABS_VOICE_ID = "test-voice"
+            mock_settings.return_value.ELEVENLABS_MODEL = "eleven_flash_v2_5"
+            mock_settings.return_value.DEEPGRAM_API_KEY = ""
 
             from app.tts.elevenlabs_client import text_to_speech
             result = await text_to_speech("Hello, world!")

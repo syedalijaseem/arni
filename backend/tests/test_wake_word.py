@@ -14,7 +14,7 @@ def detector():
     """Create a WakeWordDetector with default settings."""
     with patch("app.bot.wake_word.get_settings") as mock_settings:
         settings = MagicMock()
-        settings.WAKE_PHRASES = "hey arni,hey arnie,hey ernie,arni,hey are knee,hey arnee"
+        settings.WAKE_PHRASES = "hey arni,hey arnie,hey ernie,arni,arnie,ernie,hey are knee,hey arnee"
         settings.WAKE_COOLDOWN_SECONDS = 5
         mock_settings.return_value = settings
         return WakeWordDetector()
@@ -61,10 +61,22 @@ class TestWakeWordDetection:
         assert result.command == "help me with this"
 
     def test_wake_phrase_mid_sentence(self, detector):
-        """Wake phrase can appear anywhere in the transcript."""
+        """Wake phrase can appear anywhere — full utterance (minus wake phrase) is the command."""
         result = detector.detect("so I was thinking hey arni what do you think", "user1", "Alice")
         assert result is not None
-        assert result.command == "what do you think"
+        assert result.command == "so I was thinking what do you think"
+
+    def test_wake_phrase_at_end(self, detector):
+        """Wake phrase at end of utterance — context before it becomes the command."""
+        result = detector.detect("Can you tell me about our Q4 revenue, Arnie?", "user1", "Alice")
+        assert result is not None
+        assert result.command == "Can you tell me about our Q4 revenue"
+
+    def test_wake_phrase_at_start(self, detector):
+        """Wake phrase at start — text after it is the command."""
+        result = detector.detect("Arnie, what is our revenue?", "user1", "Alice")
+        assert result is not None
+        assert result.command == "what is our revenue"
 
     def test_no_wake_phrase(self, detector):
         result = detector.detect("just a normal sentence about the project", "user1", "Alice")

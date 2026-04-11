@@ -38,10 +38,19 @@ class WakeWordDetector:
         # Sort phrases longest-first so "hey arni" matches before bare "arni"
         raw_phrases.sort(key=len, reverse=True)
 
-        # Build a single compiled regex: (?:hey arni|hey arnie|arni|...) with word boundaries
+        # Build a regex that detects the wake phrase anywhere in the utterance.
+        # We don't use a capturing group for the "command" part because the
+        # command is the full utterance with the wake phrase stripped out.
         escaped = [re.escape(p) for p in raw_phrases]
-        pattern = r"\b(?:" + "|".join(escaped) + r")\b\s*(.*)"
-        self.pattern = re.compile(pattern, re.IGNORECASE)
+        self._wake_re = re.compile(
+            r"\b(?:" + "|".join(escaped) + r")\b",
+            re.IGNORECASE,
+        )
+        # Secondary pattern to strip the wake phrase plus surrounding punctuation/whitespace
+        self._strip_re = re.compile(
+            r",?\s*\b(?:" + "|".join(escaped) + r")\b[,.\s!?]*",
+            re.IGNORECASE,
+        )
 
         self.last_trigger_time: float = 0.0
 
@@ -64,12 +73,11 @@ class WakeWordDetector:
         - Command is empty (just "Hey Arni" with no follow-up)
         - Cooldown period hasn't elapsed
         """
-        match = self.pattern.search(text)
-        if not match:
+        if not self._wake_re.search(text):
             return None
 
-        # Strip whitespace and leading punctuation (e.g. if the transcript is "Hey Arni, do this")
-        command = match.group(1).lstrip(" ,.?!;:").strip()
+        # Strip the wake phrase (and surrounding punctuation) from the full utterance
+        command = self._strip_re.sub(" ", text).strip().strip(",.?!;:")
 
         # Ignore empty commands — user said "Hey Arni" but nothing after
         if not command:

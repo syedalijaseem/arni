@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Dict, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
@@ -81,8 +82,26 @@ async def handle_wake_word(meeting_id: str, result: WakeWordResult):
         "timestamp": result.timestamp,
     })
 
-    # TODO (Day 7): Trigger AI response pipeline here
-    # e.g. await ai_pipeline.process(meeting_id, result.command, result.speaker_name)
+    asyncio.create_task(_trigger_ai_response(meeting_id, result))
+
+
+async def _trigger_ai_response(meeting_id: str, result: WakeWordResult):
+    """Run the AI response pipeline in the background after wake-word detection."""
+    try:
+        from app.ai.ai_service import ai_respond
+        from app.ai.context_manager import build_context
+
+        context = await build_context(meeting_id)
+        response = await ai_respond(meeting_id, result.command, context)
+
+        await manager.broadcast(meeting_id, {
+            "type": "ai_response",
+            "text": response.get("response_text", ""),
+            "triggered_by": result.speaker_name,
+            "command": result.command,
+        })
+    except Exception as exc:
+        logger.error("AI response pipeline failed for meeting %s: %s", meeting_id, exc)
 
 
 @router.websocket("/{meeting_id}/ws")

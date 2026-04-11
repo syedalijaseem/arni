@@ -66,10 +66,22 @@ class ArniBot:
         self.event_handler = ArniEventHandler(self)
         self.client = daily.CallClient(event_handler=self.event_handler)
         self.deepgram = DeepgramClient(self.settings.DEEPGRAM_API_KEY)
-        
+
+        # Virtual microphone for sending TTS audio into the meeting.
+        # 16-bit PCM at 16 kHz mono — matches the ElevenLabs pcm_16000 output.
+        self.virtual_mic = daily.Daily.create_microphone_device(
+            "arni-mic",
+            sample_rate=16000,
+            channels=1,
+            non_blocking=True,
+        )
+
         self.client.update_inputs({
             "camera": False,
-            "microphone": False
+            "microphone": {
+                "isEnabled": True,
+                "settings": {"deviceId": "arni-mic"},
+            },
         })
         
         self.participant_id_to_user: Dict[str, str] = {}
@@ -80,6 +92,12 @@ class ArniBot:
         self.AI_AUDIO_TRACK_TAG = AI_AUDIO_TRACK_TAG
 
         self.wake_word_detector = WakeWordDetector()
+
+        # Conversation window: after Arni responds, the same speaker can
+        # send follow-up commands without repeating the wake word.
+        self._conv_window_seconds: float = float(self.settings.CONVERSATION_WINDOW_SECONDS)
+        self._last_response_time: float = 0.0
+        self._last_speaker_id: str = ""
 
         self.loop = asyncio.get_running_loop()
 
@@ -116,18 +134,43 @@ class ArniBot:
                 if speaker_id == "arni":
                     return
 
-                # Feed final transcripts into wake word detector
-                if is_final and self.wake_word_callback:
-                    result = self.wake_word_detector.detect(
-                        text=transcript,
-                        speaker_id=speaker_id,
-                        speaker_name=speaker_name,
+                if not is_final or not self.wake_word_callback:
+                    return
+
+                # 1. Try explicit wake word detection
+                wake_result = self.wake_word_detector.detect(
+                    text=transcript,
+                    speaker_id=speaker_id,
+                    speaker_name=speaker_name,
+                )
+
+                # 2. If no wake word, check conversation window for follow-ups
+                if wake_result is None:
+                    now = time.time()
+                    in_window = (
+                        self._last_speaker_id == speaker_id
+                        and (now - self._last_response_time) < self._conv_window_seconds
                     )
-                    if result:
-                        await self.wake_word_callback(
-                            meeting_id=self.meeting_id,
-                            result=result,
+                    if in_window:
+                        from app.bot.wake_word import WakeWordResult
+                        wake_result = WakeWordResult(
+                            speaker_id=speaker_id,
+                            speaker_name=speaker_name,
+                            command=transcript,
+                            timestamp=now,
                         )
+                        logger.info(
+                            "Conversation window follow-up from %s: %r",
+                            speaker_name, transcript,
+                        )
+
+                if wake_result:
+                    self._last_response_time = time.time()
+                    self._last_speaker_id = speaker_id
+                    await self.wake_word_callback(
+                        meeting_id=self.meeting_id,
+                        result=wake_result,
+                    )
 
             dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
             
@@ -138,7 +181,11 @@ class ArniBot:
                 channels=1,
                 sample_rate=16000,
                 interim_results=True,
-                endpointing=300
+                punctuate=True,
+                smart_format=True,
+                filler_words=False,
+                endpointing=300,
+                utterance_end_ms=1000,
             )
 
             if await dg_connection.start(options) is False:
@@ -169,6 +216,13 @@ class ArniBot:
         if dg_connection:
             await dg_connection.finish()
             del self.dg_connections[participant_id]
+
+    async def send_audio(self, audio_bytes: bytes) -> None:
+        """Write raw PCM frames to the virtual microphone so other participants hear Arni."""
+        if not audio_bytes:
+            return
+        logger.info("send_audio: writing %d bytes to virtual mic for meeting %s", len(audio_bytes), self.meeting_id)
+        await self.loop.run_in_executor(None, self.virtual_mic.write_frames, audio_bytes)
 
     async def join(self):
         logger.info(f"Arni Bot joining meeting {self.meeting_id}")
