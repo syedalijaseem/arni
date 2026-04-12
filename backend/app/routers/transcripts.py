@@ -61,7 +61,18 @@ async def handle_bot_transcript(transcript: TranscriptCreate):
 
 async def handle_wake_word(meeting_id: str, result: WakeWordResult):
     """ACTIVE MODE: wake word detected → Claude → TTS → audio."""
-    logger.info("Wake word in %s from %s: %r", meeting_id, result.speaker_name, result.command)
+    logger.info(
+        "WAKE WORD DETECTED: meeting=%s speaker=%s command=%r",
+        meeting_id, result.speaker_name, result.command,
+    )
+
+    # Check bot presence before starting the pipeline
+    from app.bot.bot_manager import bot_manager
+    bot = bot_manager.active_bots.get(meeting_id)
+    logger.info(
+        "Bot status check: meeting=%s bot_present=%s active_bots_keys=%s",
+        meeting_id, bot is not None, list(bot_manager.active_bots.keys()),
+    )
 
     await manager.broadcast(meeting_id, {
         "type": "wake_word",
@@ -75,17 +86,33 @@ async def handle_wake_word(meeting_id: str, result: WakeWordResult):
         from app.ai.ai_service import ai_respond
         from app.ai.context_manager import build_context
 
+        logger.info("Building context for meeting=%s", meeting_id)
         context = await build_context(meeting_id, command=result.command)
+        logger.info(
+            "Context built: meeting=%s summary=%d chars, turns=%d, doc_ctx=%d chars",
+            meeting_id,
+            len(context.get("summary", "")),
+            len(context.get("turns", [])),
+            len(context.get("document_context", "")),
+        )
+
+        logger.info("Calling ai_respond for meeting=%s command=%r", meeting_id, result.command[:50])
         response = await ai_respond(meeting_id, result.command, context)
+        response_text = response.get("response_text", "")
+        logger.info(
+            "ai_respond returned: meeting=%s text=%d chars, first50=%r",
+            meeting_id, len(response_text), response_text[:50],
+        )
 
         await manager.broadcast(meeting_id, {
             "type": "ai_response",
-            "text": response.get("response_text", ""),
+            "text": response_text,
             "triggered_by": result.speaker_name,
             "command": result.command,
         })
+        logger.info("ai_response broadcast done for meeting=%s", meeting_id)
     except Exception as exc:
-        logger.error("AI pipeline failed for %s: %s", meeting_id, exc)
+        logger.error("AI pipeline FAILED for %s: %s", meeting_id, exc, exc_info=True)
 
 
 @router.websocket("/{meeting_id}/ws")
