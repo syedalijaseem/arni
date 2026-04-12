@@ -837,6 +837,10 @@ function ParticipantTile({ participantId }: ParticipantTileProps) {
     );
   }
 
+  // Hide Daily.co Arni Bot tile — ArniVisualizer is shown separately
+  const name = (participant.user_name || "").toLowerCase();
+  if (name.includes("arni")) return null;
+
   const videoTrack = participant.tracks?.video;
   const audioTrack = participant.tracks?.audio;
   const isLocal = participant.local;
