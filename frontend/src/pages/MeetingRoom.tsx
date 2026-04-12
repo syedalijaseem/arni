@@ -789,7 +789,7 @@ function MeetingRoomContent() {
             onPointerUp={stopPTT}
             onPointerLeave={stopPTT}
           >
-            {isRecordingPTT ? "Recording..." : "Ask Arni"}
+            {isRecordingPTT ? "Recording..." : "Hold to Talk"}
           </Button>
         </div>
       </footer>

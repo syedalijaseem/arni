@@ -165,7 +165,7 @@ export default function PostMeetingReport() {
           Back to Dashboard
         </button>
         <h1 className="text-2xl font-semibold text-foreground">
-          {report.title ?? 'Untitled Meeting'}
+          {report.title ? `${report.title} — Summary` : 'Meeting Summary'}
         </h1>
         <p className="text-sm text-muted-foreground">
           Duration: {formatDuration(report.duration_seconds)}

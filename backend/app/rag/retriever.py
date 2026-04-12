@@ -340,6 +340,30 @@ async def retrieve(
     if proper_names:
         targeted_docs = search_results[4]
 
+    # Fallback: if all search methods returned nothing, fetch document chunks
+    # directly so post-meeting Q&A always has context (handles local MongoDB
+    # where $vectorSearch is unavailable and keyword match may miss).
+    all_empty = (
+        not vector_transcript and not vector_docs
+        and not kw_transcript and not kw_docs
+        and not targeted_docs
+    )
+    if all_empty:
+        logger.warning(
+            "All search methods failed for query: %s — using fallback fetch (limited to 15 chunks)",
+            query_text[:50],
+        )
+        try:
+            fallback_chunks = await db.document_chunks.find(
+                {"meeting_id": meeting_id},
+                {"embedding": 0},
+            ).sort("chunk_index", 1).limit(15).to_list(15)
+            for doc in fallback_chunks:
+                doc["score"] = 0.5
+                kw_docs.append(doc)
+        except Exception as exc:
+            logger.warning("Fallback chunk fetch failed: %s", exc)
+
     # 4. Build normalized results — targeted first, then keyword, then vector
     targeted_results: list[dict[str, Any]] = []
     keyword_results: list[dict[str, Any]] = []

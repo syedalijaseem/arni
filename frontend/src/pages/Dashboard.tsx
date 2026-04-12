@@ -611,7 +611,7 @@ function Dashboard() {
                   <div className="space-y-3">
                     <div>
                       <h3 className="font-semibold text-lg truncate">
-                        {meeting.title || "Untitled Meeting"}
+                        {meeting.title || `Meeting on ${new Date(meeting.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
                       </h3>
                       <p
                         className={`text-sm font-medium capitalize ${getStateColor(meeting.state)}`}
