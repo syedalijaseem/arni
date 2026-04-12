@@ -102,9 +102,9 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[350px]">
+    <div className="flex flex-col h-full min-h-0">
+      {/* Message list — scrolls internally */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 ? (
           <p className="text-sm text-slate-500 text-center pt-12">
             Ask a question about this meeting.

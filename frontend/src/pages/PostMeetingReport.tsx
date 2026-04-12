@@ -248,8 +248,8 @@ export default function PostMeetingReport() {
           {/* Right column — sticky chat */}
           {isProcessed && (
             <div>
-              <div className="lg:sticky lg:top-4">
-                <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden flex flex-col" style={{ minHeight: 'min(calc(100vh - 180px), 700px)' }}>
+              <div className="lg:sticky lg:top-6" style={{ height: 'calc(100vh - 120px)' }}>
+                <div className="flex flex-col h-full bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-700/60 shrink-0">
                     <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-blue-500" />
@@ -257,7 +257,9 @@ export default function PostMeetingReport() {
                     </h2>
                     <p className="text-xs text-slate-400 mt-0.5">About this meeting</p>
                   </div>
-                  <QnAChat meetingId={meetingId!} token={token!} />
+                  <div className="flex-1 min-h-0">
+                    <QnAChat meetingId={meetingId!} token={token!} />
+                  </div>
                 </div>
               </div>
             </div>
