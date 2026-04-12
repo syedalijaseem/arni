@@ -410,13 +410,9 @@ function MeetingRoomContent() {
           url: joinData.daily_room_url,
           token: joinData.daily_token,
         });
-        // All participants start with camera off; non-host also mic off
+        // Everyone starts with camera off, mic on
         await daily.setLocalVideo(false);
         setIsCameraOff(true);
-        if (!hostUser) {
-          await daily.setLocalAudio(false);
-          setIsMuted(true);
-        }
       }
     } catch (err: unknown) {
       console.error("Failed to join meeting:", err);
