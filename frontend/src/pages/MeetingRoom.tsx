@@ -111,6 +111,12 @@ function MeetingRoomContent() {
   const [isDocsOpen, setIsDocsOpen] = useState(false);
   interface MeetingDoc { id: string; filename: string; status: string; chunk_count: number; file_size_bytes: number; }
   const [meetingDocs, setMeetingDocs] = useState<MeetingDoc[]>([]);
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const [meetingEnded, setMeetingEnded] = useState(false);
+  const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [summaryTime, setSummaryTime] = useState<string | null>(null);
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -220,6 +226,36 @@ function MeetingRoomContent() {
           wakeWordTimerRef.current = setTimeout(() => {
             setWakeWordEvent(null);
           }, 3000);
+          return;
+        }
+
+        // Handle meeting.ended event (broadcast by host ending the meeting)
+        if (data.type === "meeting.ended") {
+          setMeetingEnded(true);
+          setTimeout(async () => {
+            if (daily) await daily.leave();
+            navigate(`/report/${meeting.id}`);
+          }, 3000);
+          return;
+        }
+
+        // Handle rolling summary update (text only, no audio)
+        if (data.type === "summary.updated") {
+          setSummaryText(data.summary_text || null);
+          setSummaryTime(data.timestamp || null);
+          return;
+        }
+
+        // Handle Arni memory-based opening in reconvened meetings
+        if (data.type === "arni_message") {
+          setTranscripts((prev) => [...prev, {
+            meeting_id: meeting.id,
+            speaker_id: "arni",
+            speaker_name: "Arni",
+            text: data.text,
+            is_final: true,
+            timestamp: new Date().toISOString(),
+          }]);
           return;
         }
 
@@ -418,6 +454,31 @@ function MeetingRoomContent() {
     setIsRecordingPTT(false);
   }
 
+  async function handleEndMeeting() {
+    if (!meeting?.id) return;
+    setIsEnding(true);
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}/end`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to end meeting" }));
+        alert(err.detail || "Failed to end meeting");
+        setIsEnding(false);
+        return;
+      }
+      setMeetingEnded(true);
+      setTimeout(async () => {
+        if (daily) await daily.leave();
+        navigate(`/report/${meeting.id}`);
+      }, 2000);
+    } catch {
+      alert("Failed to end meeting");
+      setIsEnding(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -459,10 +520,50 @@ function MeetingRoomContent() {
             {participantIds.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <Button variant="destructive" onClick={leaveMeeting} size="sm">
-          Leave Meeting
-        </Button>
+        <div className="flex items-center gap-2">
+          {isHost && (
+            <Button variant="destructive" onClick={() => setShowEndConfirm(true)} size="sm">
+              End Meeting
+            </Button>
+          )}
+          <Button variant="secondary" onClick={leaveMeeting} size="sm">
+            Leave Meeting
+          </Button>
+        </div>
       </header>
+
+      {/* End Meeting confirmation dialog */}
+      {showEndConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <Card className="p-6 max-w-sm space-y-4">
+            <h2 className="text-lg font-semibold">End Meeting?</h2>
+            <p className="text-sm text-muted-foreground">
+              End meeting for all participants? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setShowEndConfirm(false)} disabled={isEnding}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleEndMeeting} disabled={isEnding}>
+                {isEnding ? "Ending..." : "End Meeting"}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Meeting ended overlay */}
+      {meetingEnded && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+          <Card className="p-8">
+            <div className="text-center space-y-3">
+              <h2 className="text-xl font-semibold">Meeting Ended</h2>
+              <p className="text-sm text-muted-foreground">Processing your meeting report...</p>
+              <p className="text-xs text-muted-foreground animate-pulse">Redirecting...</p>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <main className="flex-1 p-4 flex gap-4 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
@@ -494,8 +595,31 @@ function MeetingRoomContent() {
           )}
         </div>
 
-        {/* Right sidebar: Documents + Transcript */}
+        {/* Right sidebar: Summary + Documents + Transcript */}
         <div className="w-80 hidden lg:flex flex-col gap-3">
+
+        {/* Rolling Summary Panel */}
+        {summaryText && (
+          <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+            <button
+              className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+              onClick={() => setIsSummaryOpen(!isSummaryOpen)}
+            >
+              <span>Meeting Summary</span>
+              <span className="text-xs text-gray-500">{isSummaryOpen ? "▲" : "▼"}</span>
+            </button>
+            {isSummaryOpen && (
+              <div className="px-3 pb-3">
+                <p className="text-sm text-gray-300 whitespace-pre-wrap">{summaryText}</p>
+                {summaryTime && (
+                  <p className="text-xs text-gray-600 mt-2">
+                    Last updated {new Date(summaryTime).toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Document Panel */}
         <Card className="bg-gray-950 border-gray-800 flex-shrink-0">

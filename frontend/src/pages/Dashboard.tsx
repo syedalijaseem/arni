@@ -19,6 +19,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 interface Meeting {
   id: string;
   title: string | null;
+  host_id: string;
   state: string;
   invite_code: string;
   created_at: string;
@@ -88,6 +89,12 @@ function Dashboard() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reconvene state
+  const [reconveneId, setReconveneId] = useState<string | null>(null);
+  const [reconveneTitle, setReconveneTitle] = useState("");
+  const [reconveneSummary, setReconveneSummary] = useState("");
+  const [isReconvening, setIsReconvening] = useState(false);
 
   const loadMeetings = useCallback(
     async (query: string) => {
@@ -256,6 +263,54 @@ function Dashboard() {
     navigator.clipboard.writeText(link);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  }
+
+  async function openReconveneDialog(meeting: Meeting) {
+    setReconveneId(meeting.id);
+    setReconveneTitle(`Follow-up: ${meeting.title || "Untitled Meeting"}`);
+    // Fetch full meeting detail to get summary for preview
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const detail: MeetingDetail = await res.json();
+        setReconveneSummary(detail.summary || "");
+      }
+    } catch {
+      // proceed without summary preview
+    }
+  }
+
+  async function handleReconvene() {
+    if (!reconveneId) return;
+    setIsReconvening(true);
+    try {
+      const res = await fetch(`/api/meetings/${reconveneId}/reconvene`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: reconveneTitle.trim() || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to reconvene" }));
+        alert(err.detail || "Failed to reconvene");
+        return;
+      }
+      const newMeeting: MeetingDetail = await res.json();
+      // Copy invite link
+      navigator.clipboard.writeText(newMeeting.invite_link);
+      // Close dialog and navigate
+      setReconveneId(null);
+      const code = newMeeting.invite_link.split("/").pop();
+      navigate(`/meeting/${code}`);
+    } catch {
+      alert("Failed to reconvene meeting");
+    } finally {
+      setIsReconvening(false);
+    }
   }
 
   function formatDate(dateStr: string) {
@@ -551,15 +606,26 @@ function Dashboard() {
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      {meeting.state === "processed" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => navigate(`/report/${meeting.id}`)}
-                        >
-                          View Report
-                        </Button>
+                      {(meeting.state === "ended" || meeting.state === "processed") ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => navigate(`/report/${meeting.id}`)}
+                          >
+                            View Report
+                          </Button>
+                          {meeting.host_id === user?.id && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => openReconveneDialog(meeting)}
+                            >
+                              Reconvene
+                            </Button>
+                          )}
+                        </>
                       ) : (
                         <Button
                           variant="outline"
@@ -586,6 +652,48 @@ function Dashboard() {
             </div>
           )}
         </div>
+
+        {/* Reconvene dialog */}
+        {reconveneId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <Card className="p-6 w-full max-w-md space-y-4">
+              <h2 className="text-lg font-semibold">Reconvene Meeting</h2>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="reconvene-title">Title</Label>
+                  <Input
+                    id="reconvene-title"
+                    value={reconveneTitle}
+                    onChange={(e) => setReconveneTitle(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                {reconveneSummary && (
+                  <div className="space-y-1">
+                    <Label>Arni will remember:</Label>
+                    <p className="text-sm text-muted-foreground bg-muted/50 rounded p-3">
+                      {reconveneSummary.slice(0, 200)}
+                      {reconveneSummary.length > 200 ? "..." : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setReconveneId(null); setReconveneSummary(""); }}
+                  disabled={isReconvening}
+                >
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleReconvene} disabled={isReconvening}>
+                  {isReconvening ? "Creating..." : "Start Follow-up Meeting"}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </main>
     </div>
   );

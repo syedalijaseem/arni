@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     HOST_GRACE_PERIOD_MINUTES: int = 10
 
     # Rolling Summary Scheduler
-    AUTO_SUMMARY_INTERVAL_MINUTES: int = 10
+    AUTO_SUMMARY_INTERVAL_MINUTES: int = 5
 
     model_config = {
         "env_file": ".env",

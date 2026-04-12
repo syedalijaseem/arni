@@ -30,6 +30,90 @@ from app.lobby.lobby_manager import lobby_manager
 router = APIRouter()
 settings = get_settings()
 
+# ---------------------------------------------------------------------------
+# Lightweight rolling-summary loop (asyncio, no external scheduler)
+# ---------------------------------------------------------------------------
+import asyncio as _asyncio
+
+_summary_tasks: dict[str, _asyncio.Task] = {}
+
+
+async def _summary_loop(meeting_id: str, interval_seconds: int) -> None:
+    """Call /ai/summarize every *interval_seconds* until cancelled."""
+    import httpx
+    while True:
+        await _asyncio.sleep(interval_seconds)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                await client.post(
+                    "http://localhost:8000/ai/summarize",
+                    json={"meeting_id": meeting_id},
+                )
+        except Exception as exc:
+            logger.warning("Rolling summary call failed for meeting=%s: %s", meeting_id, exc)
+
+
+def _start_summary_loop(meeting_id: str) -> None:
+    if meeting_id in _summary_tasks:
+        return
+    interval = settings.AUTO_SUMMARY_INTERVAL_MINUTES * 60
+    task = _asyncio.create_task(_summary_loop(meeting_id, interval))
+    _summary_tasks[meeting_id] = task
+    logger.info("Summary loop started for meeting=%s (every %ds)", meeting_id, interval)
+
+
+def _stop_summary_loop(meeting_id: str) -> None:
+    task = _summary_tasks.pop(meeting_id, None)
+    if task and not task.done():
+        task.cancel()
+        logger.info("Summary loop stopped for meeting=%s", meeting_id)
+
+
+async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
+    """Generate and broadcast a memory-based opening when a reconvened meeting starts."""
+    import anthropic
+    from app.routers.transcripts import manager
+
+    # Wait a few seconds for participants and bot to connect
+    await _asyncio.sleep(5)
+
+    context = meeting.get("context_summary", "")
+    if not context:
+        return
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=80,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Generate a natural 2-sentence opening for Arni to say when a "
+                    "follow-up meeting starts. Be warm and specific. Reference what "
+                    "was discussed.\n\n"
+                    f"Previous meeting summary: {context[:500]}\n\n"
+                    'Example: "Welcome back everyone. Last time we covered the Q4 '
+                    'results and decided to expand the marketing budget — ready to '
+                    'pick up from there."'
+                ),
+            }],
+        )
+        opening = message.content[0].text
+    except Exception as exc:
+        logger.warning("Failed to generate reconvene opening for meeting=%s: %s", meeting_id, exc)
+        return
+
+    # Broadcast to transcript (text display for all participants)
+    try:
+        await manager.broadcast(meeting_id, {
+            "type": "arni_message",
+            "text": opening,
+            "is_memory": True,
+        })
+    except Exception as exc:
+        logger.warning("Failed to broadcast reconvene opening: %s", exc)
+
 
 def _generate_invite_code() -> str:
     """Generate a random 8-character invite code."""
@@ -55,6 +139,8 @@ def _meeting_response(meeting: dict) -> MeetingResponse:
         decisions=meeting.get("decisions", []),
         action_item_ids=[str(aid) for aid in meeting.get("action_item_ids", [])],
         timeline=meeting.get("timeline", []),
+        parent_meeting_id=meeting.get("parent_meeting_id"),
+        context_summary=meeting.get("context_summary"),
     )
 
 
@@ -145,6 +231,7 @@ async def dashboard(
         MeetingListResponse(
             id=str(m["_id"]),
             title=m.get("title"),
+            host_id=str(m["host_id"]),
             state=m["state"],
             invite_code=m["invite_code"],
             created_at=m["created_at"],
@@ -200,6 +287,7 @@ async def search_meetings(
         MeetingListResponse(
             id=str(m["_id"]),
             title=m.get("title"),
+            host_id=str(m["host_id"]),
             state=m["state"],
             invite_code=m["invite_code"],
             created_at=m["created_at"],
@@ -363,6 +451,13 @@ async def join_meeting(
             wake_word_callback=handle_wake_word,
         ))
 
+        # Start rolling summary loop
+        _start_summary_loop(meeting_id)
+
+        # For reconvened meetings, speak a memory-based opening
+        if meeting.get("parent_meeting_id") and meeting.get("context_summary"):
+            asyncio.create_task(_speak_reconvene_opening(meeting_id, meeting))
+
     # Generate Daily.co token
     if not meeting.get("daily_room_name"):
         raise HTTPException(
@@ -441,6 +536,7 @@ async def list_meetings(
             MeetingListResponse(
                 id=str(meeting["_id"]),
                 title=meeting.get("title"),
+                host_id=str(meeting["host_id"]),
                 state=meeting["state"],
                 invite_code=meeting["invite_code"],
                 created_at=meeting["created_at"],
@@ -642,11 +738,43 @@ async def end_meeting(
 
     # Calculate duration if meeting was active
     if meeting.get("started_at"):
-        duration = int((datetime.now(timezone.utc) - meeting["started_at"]).total_seconds())
+        started = meeting["started_at"]
+        now = datetime.now(timezone.utc)
+        # MongoDB may store naive datetimes — normalize both to aware
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        duration = int((now - started).total_seconds())
         await db.meetings.update_one(
             {"_id": ObjectId(meeting_id)},
             {"$set": {"duration_seconds": duration}},
         )
+
+    # Set state to ENDED immediately
+    await db.meetings.update_one(
+        {"_id": ObjectId(meeting_id)},
+        {"$set": {"state": MeetingState.ENDED, "ended_at": datetime.now(timezone.utc)}},
+    )
+
+    # Stop rolling summary loop
+    _stop_summary_loop(meeting_id)
+
+    # Stop Arni bot
+    try:
+        await bot_manager.stop_bot_for_meeting(meeting_id)
+    except Exception as exc:
+        logger.warning("Failed to stop bot for meeting=%s: %s", meeting_id, exc)
+
+    # Broadcast meeting.ended to all connected WebSocket clients
+    try:
+        from app.routers.transcripts import manager
+        import time as _time
+        await manager.broadcast(meeting_id, {
+            "type": "meeting.ended",
+            "meeting_id": meeting_id,
+            "timestamp": _time.time(),
+        })
+    except Exception as exc:
+        logger.warning("Failed to broadcast meeting.ended: %s", exc)
 
     # Trigger async post-processing pipeline — non-blocking (architecture §10)
     asyncio.create_task(processor.run(meeting_id))
@@ -656,6 +784,113 @@ async def end_meeting(
         state=MeetingState.ENDED,
         message="Meeting ended. Processing your meeting report...",
     )
+
+
+# ---------------------------------------------------------------------------
+# Reconvene meeting — create follow-up with memory
+# ---------------------------------------------------------------------------
+
+class ReconveneRequest(BaseModel):
+    title: str | None = None
+
+
+@router.post("/{meeting_id}/reconvene", response_model=MeetingResponse)
+async def reconvene_meeting(
+    meeting_id: str,
+    body: ReconveneRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Create a follow-up meeting from an ended meeting.
+
+    Host-only. Copies parent summary, decisions, and document references
+    into a new meeting so Arni has full context.
+    """
+    db = get_database()
+
+    try:
+        parent = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid meeting ID")
+
+    if not parent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    # Only the original host may reconvene
+    if str(parent["host_id"]) != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the original host can reconvene this meeting",
+        )
+
+    if parent["state"] not in [MeetingState.ENDED, MeetingState.PROCESSED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only reconvene ended meetings",
+        )
+
+    # Build new meeting
+    invite_code = _generate_invite_code()
+    invite_link = f"{settings.FRONTEND_URL}/meeting/{invite_code}"
+
+    parent_title = parent.get("title") or "Untitled Meeting"
+    new_title = body.title or f"Follow-up: {parent_title}"
+
+    # Create Daily.co room
+    daily_room_name = None
+    daily_room_url = None
+    if settings.DAILY_API_KEY:
+        try:
+            daily_room_data = await create_room(name=f"arni-{invite_code}")
+            daily_room_name = daily_room_data["name"]
+            daily_room_url = daily_room_data["url"]
+        except DailyCoError as exc:
+            logger.warning("Failed to create Daily.co room for reconvene: %s", exc)
+
+    meeting_doc = {
+        "title": new_title,
+        "host_id": ObjectId(current_user["id"]),
+        "participant_ids": [ObjectId(current_user["id"])],
+        "state": MeetingState.CREATED,
+        "invite_code": invite_code,
+        "invite_link": invite_link,
+        "daily_room_name": daily_room_name,
+        "daily_room_url": daily_room_url,
+        "started_at": None,
+        "ended_at": None,
+        "duration_seconds": None,
+        "summary": None,
+        "decisions": [],
+        "action_item_ids": [],
+        "timeline": [],
+        "created_at": datetime.now(timezone.utc),
+        "parent_meeting_id": str(parent["_id"]),
+        "context_summary": parent.get("summary") or "",
+        "parent_decisions": parent.get("decisions") or [],
+    }
+
+    result = await db.meetings.insert_one(meeting_doc)
+    meeting_doc["_id"] = result.inserted_id
+
+    # Copy parent meeting document references (chunks) to new meeting
+    try:
+        parent_chunks = await db.document_chunks.find(
+            {"meeting_id": meeting_id}
+        ).to_list(length=10000)
+        if parent_chunks:
+            new_meeting_id = str(result.inserted_id)
+            for chunk in parent_chunks:
+                chunk.pop("_id", None)
+                chunk["meeting_id"] = new_meeting_id
+            await db.document_chunks.insert_many(parent_chunks)
+            logger.info(
+                "Copied %d document chunks from meeting=%s to meeting=%s",
+                len(parent_chunks), meeting_id, new_meeting_id,
+            )
+    except Exception as exc:
+        logger.warning("Failed to copy document chunks for reconvene: %s", exc)
+
+    return _meeting_response(meeting_doc)
 
 
 # ---------------------------------------------------------------------------

@@ -40,11 +40,16 @@ class MeetingResponse(BaseModel):
     action_item_ids: List[str] = []
     timeline: List[dict] = []
 
+    # Reconvene fields
+    parent_meeting_id: Optional[str] = None
+    context_summary: Optional[str] = None
+
 
 class MeetingListResponse(BaseModel):
     """Schema for meeting list item (lighter response for dashboard)."""
     id: str
     title: Optional[str]
+    host_id: str = ""
     state: MeetingState
     invite_code: str
     created_at: datetime

@@ -262,6 +262,17 @@ async def summarize(body: AISummarizeRequest) -> AISummarizeResponse:
 
     logger.info("Rolling summary stored for meeting=%s", body.meeting_id)
 
+    # Broadcast summary.updated to all connected WebSocket clients (text only, no TTS)
+    try:
+        from app.routers.transcripts import manager
+        await manager.broadcast(body.meeting_id, {
+            "type": "summary.updated",
+            "summary_text": summary_text,
+            "timestamp": now.isoformat(),
+        })
+    except Exception as exc:
+        logger.warning("Failed to broadcast summary.updated: %s", exc)
+
     return AISummarizeResponse(summary_text=summary_text, skipped=False)
 
 
