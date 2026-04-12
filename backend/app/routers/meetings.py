@@ -70,11 +70,13 @@ def _stop_summary_loop(meeting_id: str) -> None:
 
 
 async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
-    """Generate and broadcast a memory-based opening when a reconvened meeting starts."""
+    """Generate, speak via TTS, and broadcast a memory-based opening."""
     import anthropic
     from app.routers.transcripts import manager
+    from app.tts.elevenlabs_client import text_to_speech
+    from app.tts.audio_injection import inject_audio
 
-    # Wait a few seconds for participants and bot to connect
+    # Wait for bot to join the Daily.co room before injecting audio
     await _asyncio.sleep(5)
 
     context = meeting.get("context_summary", "")
@@ -104,7 +106,18 @@ async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
         logger.warning("Failed to generate reconvene opening for meeting=%s: %s", meeting_id, exc)
         return
 
-    # Broadcast to transcript (text display for all participants)
+    # Speak via TTS
+    try:
+        audio = await text_to_speech(opening)
+        if audio:
+            await inject_audio(audio, meeting_id)
+            logger.info("TTS called for reconvene opening, meeting=%s", meeting_id)
+        else:
+            logger.warning("TTS returned no audio for reconvene opening, meeting=%s", meeting_id)
+    except Exception as exc:
+        logger.warning("TTS failed for reconvene opening, meeting=%s: %s", meeting_id, exc)
+
+    # Also broadcast as text to transcript
     try:
         await manager.broadcast(meeting_id, {
             "type": "arni_message",
@@ -422,8 +435,21 @@ async def join_meeting(
             detail="This meeting has ended",
         )
 
-    # Add user to participants if not already there
+    # Verify user is authorized: host, existing participant, or on invite list
     user_oid = ObjectId(current_user["id"])
+    is_host = str(meeting["host_id"]) == current_user["id"]
+    is_participant = user_oid in meeting.get("participant_ids", [])
+    user_email = (current_user.get("email") or "").lower()
+    invite_list = [e.lower() for e in meeting.get("invite_list", [])]
+    is_invited = user_email and user_email in invite_list
+
+    if not is_host and not is_participant and not is_invited:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not invited to this meeting",
+        )
+
+    # Add user to participants if not already there
     if user_oid not in meeting.get("participant_ids", []):
         await db.meetings.update_one(
             {"_id": ObjectId(meeting_id)},
@@ -641,6 +667,29 @@ async def remove_participant(
         {"_id": meeting["_id"]},
         {"$pull": {"participant_ids": ObjectId(user_id)}},
     )
+
+    # Also remove their email from invite_list so they can't rejoin
+    try:
+        removed_user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if removed_user and removed_user.get("email"):
+            await db.meetings.update_one(
+                {"_id": meeting["_id"]},
+                {"$pull": {"invite_list": removed_user["email"].lower()}},
+            )
+    except Exception:
+        pass
+
+    # Broadcast removal event
+    try:
+        from app.routers.transcripts import manager
+        await manager.broadcast(meeting_id, {
+            "type": "participant.removed",
+            "user_id": user_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+
     return {"removed": True, "user_id": user_id}
 
 
@@ -796,6 +845,7 @@ async def end_meeting(
 
 class ReconveneRequest(BaseModel):
     title: str | None = None
+    invite_emails: list[str] = []
 
 
 @router.post("/{meeting_id}/reconvene", response_model=MeetingResponse)
@@ -926,6 +976,16 @@ async def reconvene_meeting(
             )
     except Exception as exc:
         logger.warning("Failed to copy documents for reconvene: %s", exc)
+
+    # Send invites to provided emails
+    if body.invite_emails:
+        for email in body.invite_emails:
+            clean = email.strip().lower()
+            if clean:
+                await db.meetings.update_one(
+                    {"_id": result.inserted_id},
+                    {"$addToSet": {"invite_list": clean}},
+                )
 
     return _meeting_response(meeting_doc)
 
@@ -1106,6 +1166,10 @@ async def ask_meeting(
             speaker = attr.get("speaker_name") or "Participant"
             ts = attr.get("timestamp") or ""
             label = f"[Transcript — {speaker}{', ' + ts if ts else ''}]"
+        elif source == "meeting_history":
+            meeting_title = attr.get("meeting_title") or "Previous meeting"
+            date = attr.get("date") or ""
+            label = f"[Previous meeting: \"{meeting_title}\"{f' ({date})' if date else ''}]"
         else:
             filename = attr.get("filename") or "document"
             label = f"[Document — {filename}]"
@@ -1113,8 +1177,11 @@ async def ask_meeting(
 
     context_text = "\n\n".join(context_parts) if context_parts else "No relevant context found."
     system_prompt = (
-        "You are a helpful meeting assistant. Answer the user's question based solely on "
-        "the provided context from meeting transcripts and uploaded documents. "
+        "You are a helpful meeting assistant. Answer the user's question based on "
+        "the provided context from meeting transcripts, uploaded documents, and previous meeting history. "
+        "When referencing previous meetings, use their actual title and date (e.g. "
+        "'In \"Sales Review Q4\" (last session), you discussed...'). "
+        "Never refer to meetings as 'Meeting A' or 'parent meeting'. "
         "If the context does not contain enough information, say so clearly."
     )
     user_message = f"Context:\n{context_text}\n\nQuestion: {body.question}"

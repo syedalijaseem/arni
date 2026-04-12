@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Any
 
+from bson import ObjectId
 from app.database import get_database
 from app.rag.embedder import embed_texts
 
@@ -270,38 +271,63 @@ async def retrieve(
     """
     db = get_database()
 
-    # 0. Log available documents and resolve effective search scope.
-    #    If no document_chunks exist for this meeting_id, fall back to
-    #    searching by document_id from the documents collection. This
-    #    handles edge cases (reconvened meetings, copied docs).
+    # 0. Walk the meeting chain to resolve search scope.
+    #    Current + direct parent: full RAG search.
+    #    Older ancestors: inject their summaries as context chunks only.
+    meeting_ids = [meeting_id]  # IDs for full RAG search
+    ancestor_summaries: list[dict[str, Any]] = []  # summaries from grandparent+
     try:
-        doc_count = await db.document_chunks.count_documents({"meeting_id": meeting_id})
+        current_id: str | None = meeting_id
+        visited: set[str] = set()
+        depth = 0
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            doc = await db.meetings.find_one(
+                {"_id": ObjectId(current_id)},
+                {"parent_meeting_id": 1, "title": 1, "summary": 1, "ended_at": 1},
+            )
+            if not doc or not doc.get("parent_meeting_id"):
+                break
+            depth += 1
+            parent_id = str(doc["parent_meeting_id"])
+            if depth <= 1:
+                # Direct parent — full RAG search
+                meeting_ids.append(parent_id)
+            else:
+                # Grandparent+ — summary only
+                parent_doc = await db.meetings.find_one(
+                    {"_id": ObjectId(parent_id)},
+                    {"title": 1, "summary": 1, "ended_at": 1},
+                )
+                if parent_doc and parent_doc.get("summary"):
+                    ended = parent_doc.get("ended_at")
+                    ancestor_summaries.append({
+                        "title": parent_doc.get("title") or f"{depth + 1} sessions ago",
+                        "summary": parent_doc["summary"],
+                        "date": str(ended) if ended else "",
+                    })
+            current_id = parent_id
+        if len(meeting_ids) > 1 or ancestor_summaries:
+            logger.info(
+                "retrieve: chain depth=%d, full_rag=%s, summary_ancestors=%d",
+                depth, meeting_ids, len(ancestor_summaries),
+            )
+    except Exception:
+        pass
+
+    # Log available documents across all meeting IDs in scope
+    try:
+        doc_count = await db.document_chunks.count_documents({"meeting_id": {"$in": meeting_ids}})
+        tx_count = await db.transcript_chunks.count_documents({"meeting_id": {"$in": meeting_ids}})
         ready_docs = await db.documents.find(
-            {"meeting_id": meeting_id, "status": "ready"},
+            {"meeting_id": {"$in": meeting_ids}, "status": "ready"},
             {"filename": 1, "chunk_count": 1},
         ).to_list(50)
         logger.info(
-            "retrieve: meeting=%s has %d chunk(s) across %d doc(s): %s",
-            meeting_id, doc_count, len(ready_docs),
+            "retrieve: scope=%s has %d doc_chunk(s), %d tx_chunk(s), %d doc(s): %s",
+            meeting_ids, doc_count, tx_count, len(ready_docs),
             [d.get("filename") for d in ready_docs],
         )
-
-        # If document records exist but no chunks matched by meeting_id,
-        # re-index chunks by document_id so searches can find them.
-        if ready_docs and doc_count == 0:
-            doc_ids = [str(d["_id"]) for d in ready_docs]
-            orphan_count = await db.document_chunks.count_documents(
-                {"document_id": {"$in": doc_ids}}
-            )
-            if orphan_count > 0:
-                logger.warning(
-                    "retrieve: meeting=%s has %d orphan chunks (document_id match, meeting_id mismatch) — patching",
-                    meeting_id, orphan_count,
-                )
-                await db.document_chunks.update_many(
-                    {"document_id": {"$in": doc_ids}, "meeting_id": {"$ne": meeting_id}},
-                    {"$set": {"meeting_id": meeting_id}},
-                )
     except Exception:
         pass
 
@@ -312,33 +338,40 @@ async def retrieve(
     # 2. Extract keywords for keyword search
     keywords = _extract_keywords(query_text)
 
-    # 3. Run searches in parallel
+    # 3. Run searches in parallel across all meeting IDs in scope
     import asyncio
 
-    searches = [
-        _vector_search(db.transcript_chunks, meeting_id, query_vector, top_k),
-        _vector_search(db.document_chunks, meeting_id, query_vector, top_k),
-        _keyword_search(db.transcript_chunks, meeting_id, keywords, top_k),
-        _keyword_search(db.document_chunks, meeting_id, keywords, top_k),
-    ]
+    searches: list = []
+    for mid in meeting_ids:
+        searches.append(_vector_search(db.transcript_chunks, mid, query_vector, top_k))
+        searches.append(_vector_search(db.document_chunks, mid, query_vector, top_k))
+        searches.append(_keyword_search(db.transcript_chunks, mid, keywords, top_k))
+        searches.append(_keyword_search(db.document_chunks, mid, keywords, top_k))
 
-    # For queries with proper names, add a targeted search requiring
-    # the proper name AND numeric data — catches results tables that
-    # broad keyword search misses due to MongoDB cursor limits
     proper_names = list(_PROPER_RE.findall(query_text))
     targeted_docs: list[dict[str, Any]] = []
     if proper_names:
-        searches.append(
-            _targeted_search(db.document_chunks, meeting_id, proper_names, top_k)
-        )
+        for mid in meeting_ids:
+            searches.append(_targeted_search(db.document_chunks, mid, proper_names, top_k))
 
     search_results = await asyncio.gather(*searches)
-    vector_transcript = search_results[0]
-    vector_docs = search_results[1]
-    kw_transcript = search_results[2]
-    kw_docs = search_results[3]
+
+    # Merge results from all meeting IDs
+    vector_transcript: list[dict[str, Any]] = []
+    vector_docs: list[dict[str, Any]] = []
+    kw_transcript: list[dict[str, Any]] = []
+    kw_docs: list[dict[str, Any]] = []
+    per_meeting = 4  # 4 searches per meeting_id
+    for i, mid in enumerate(meeting_ids):
+        base = i * per_meeting
+        vector_transcript.extend(search_results[base])
+        vector_docs.extend(search_results[base + 1])
+        kw_transcript.extend(search_results[base + 2])
+        kw_docs.extend(search_results[base + 3])
     if proper_names:
-        targeted_docs = search_results[4]
+        targeted_base = len(meeting_ids) * per_meeting
+        for j in range(len(meeting_ids)):
+            targeted_docs.extend(search_results[targeted_base + j])
 
     # Fallback: if all search methods returned nothing, fetch document chunks
     # directly so post-meeting Q&A always has context (handles local MongoDB
@@ -354,13 +387,24 @@ async def retrieve(
             query_text[:50],
         )
         try:
-            fallback_chunks = await db.document_chunks.find(
-                {"meeting_id": meeting_id},
+            # Fetch from both collections across all meeting IDs in scope
+            fallback_doc_chunks = await db.document_chunks.find(
+                {"meeting_id": {"$in": meeting_ids}},
                 {"embedding": 0},
             ).sort("chunk_index", 1).limit(15).to_list(15)
-            for doc in fallback_chunks:
+            for doc in fallback_doc_chunks:
                 doc["score"] = 0.5
+                doc["source"] = "document"
                 kw_docs.append(doc)
+
+            fallback_tx_chunks = await db.transcript_chunks.find(
+                {"meeting_id": {"$in": meeting_ids}},
+                {"embedding": 0},
+            ).sort("chunk_index", 1).limit(15).to_list(15)
+            for doc in fallback_tx_chunks:
+                doc["score"] = 0.5
+                doc["source"] = "transcript"
+                kw_transcript.append(doc)
         except Exception as exc:
             logger.warning("Fallback chunk fetch failed: %s", exc)
 
@@ -440,4 +484,20 @@ async def retrieve(
         min(final_k, len(unique_results)),
     )
 
-    return unique_results[:final_k]
+    results = unique_results[:final_k]
+
+    # Append ancestor meeting summaries as synthetic context chunks.
+    # These appear after RAG results so Claude has the full chain history.
+    for s in ancestor_summaries:
+        title = s.get("title", "Previous meeting")
+        date = s.get("date", "")
+        summary = s.get("summary", "")
+        date_label = f" ({date})" if date else ""
+        results.append({
+            "source": "meeting_history",
+            "text": f"[Previous meeting: \"{title}\"{date_label}]\n{summary}",
+            "score": 0.4,
+            "attribution": {"meeting_title": title, "date": date},
+        })
+
+    return results

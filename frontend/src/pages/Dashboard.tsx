@@ -97,6 +97,8 @@ function Dashboard() {
   const [reconveneTitle, setReconveneTitle] = useState("");
   const [reconveneSummary, setReconveneSummary] = useState("");
   const [isReconvening, setIsReconvening] = useState(false);
+  const [reconveneEmails, setReconveneEmails] = useState<string[]>([]);
+  const [reconveneEmailInput, setReconveneEmailInput] = useState("");
 
   const loadMeetings = useCallback(
     async (query: string) => {
@@ -270,17 +272,31 @@ function Dashboard() {
   async function openReconveneDialog(meeting: Meeting) {
     setReconveneId(meeting.id);
     setReconveneTitle(`Follow-up: ${meeting.title || "Untitled Meeting"}`);
-    // Fetch full meeting detail to get summary for preview
+    setReconveneEmails([]);
+    setReconveneEmailInput("");
+    // Fetch meeting detail + participants in parallel
     try {
-      const res = await fetch(`/api/meetings/${meeting.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const detail: MeetingDetail = await res.json();
+      const [detailRes, participantsRes] = await Promise.all([
+        fetch(`/api/meetings/${meeting.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`/api/meetings/${meeting.id}/participants`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+      if (detailRes.ok) {
+        const detail: MeetingDetail = await detailRes.json();
         setReconveneSummary(detail.summary || "");
       }
+      if (participantsRes.ok) {
+        const participants: { id: string; email: string; is_host: boolean }[] = await participantsRes.json();
+        const emails = participants
+          .filter((p) => !p.is_host && p.email)
+          .map((p) => p.email.toLowerCase());
+        setReconveneEmails(emails);
+      }
     } catch {
-      // proceed without summary preview
+      // proceed without pre-populated data
     }
   }
 
@@ -294,7 +310,7 @@ function Dashboard() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ title: reconveneTitle.trim() || null }),
+        body: JSON.stringify({ title: reconveneTitle.trim() || null, invite_emails: reconveneEmails }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Failed to reconvene" }));
@@ -700,6 +716,56 @@ function Dashboard() {
                     autoFocus
                   />
                 </div>
+                {/* Participants */}
+                <div className="space-y-1">
+                  <Label>Participants</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="email"
+                      placeholder="Add email"
+                      value={reconveneEmailInput}
+                      onChange={(e) => setReconveneEmailInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const v = reconveneEmailInput.trim().toLowerCase();
+                          if (v && v.includes("@") && !reconveneEmails.includes(v)) {
+                            setReconveneEmails((prev) => [...prev, v]);
+                            setReconveneEmailInput("");
+                          }
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const v = reconveneEmailInput.trim().toLowerCase();
+                        if (v && v.includes("@") && !reconveneEmails.includes(v)) {
+                          setReconveneEmails((prev) => [...prev, v]);
+                          setReconveneEmailInput("");
+                        }
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {reconveneEmails.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {reconveneEmails.map((email) => (
+                        <span key={email} className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2.5 py-1 rounded-full">
+                          {email}
+                          <button type="button" className="hover:text-destructive" onClick={() => setReconveneEmails((prev) => prev.filter((e) => e !== email))}>
+                            &times;
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {reconveneSummary && (
                   <div className="space-y-1">
                     <Label>Arni will remember:</Label>
@@ -714,7 +780,7 @@ function Dashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => { setReconveneId(null); setReconveneSummary(""); }}
+                  onClick={() => { setReconveneId(null); setReconveneSummary(""); setReconveneEmails([]); }}
                   disabled={isReconvening}
                 >
                   Cancel

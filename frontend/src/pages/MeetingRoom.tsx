@@ -219,9 +219,8 @@ function MeetingRoomContent() {
   useEffect(() => {
     if (!meeting?.id) return;
 
-    // TODO: configure environment API URL instead of hardcoding localhost if moving to prod
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//localhost:8000/transcripts/${meeting.id}/ws`;
+    const wsUrl = `${wsProtocol}//${window.location.host}/api/transcripts/${meeting.id}/ws`;
     const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
@@ -237,17 +236,44 @@ function MeetingRoomContent() {
           return;
         }
 
-        // Handle wake word events
+        // Handle wake word events — show overlay + append note to transcript
         if (data.type === "wake_word") {
           setWakeWordEvent(data as WakeWordEvent);
-          // Clear any existing timer
           if (wakeWordTimerRef.current) {
             clearTimeout(wakeWordTimerRef.current);
           }
-          // Auto-dismiss after 3 seconds
           wakeWordTimerRef.current = setTimeout(() => {
             setWakeWordEvent(null);
           }, 3000);
+          setTranscripts((prev) => [...prev, {
+            meeting_id: meeting.id,
+            speaker_id: "arni",
+            speaker_name: "Arni",
+            text: `Heard: "${data.command}"`,
+            is_final: true,
+            timestamp: new Date().toISOString(),
+          }]);
+          return;
+        }
+
+        // Handle Arni's spoken response after wake word
+        if (data.type === "ai_response") {
+          setTranscripts((prev) => [...prev, {
+            meeting_id: meeting.id,
+            speaker_id: "arni",
+            speaker_name: "Arni",
+            text: data.text,
+            is_final: true,
+            timestamp: new Date().toISOString(),
+          }]);
+          return;
+        }
+
+        // Handle participant removal — redirect if current user was removed
+        if (data.type === "participant.removed" && data.user_id === user?.id) {
+          alert("You have been removed from this meeting");
+          if (daily) daily.leave();
+          navigate("/dashboard");
           return;
         }
 
@@ -365,7 +391,13 @@ function MeetingRoomContent() {
       });
 
       if (!joinRes.ok) {
-        const errorData = await joinRes.json();
+        const errorData = await joinRes.json().catch(() => ({}));
+        if (joinRes.status === 403) {
+          setError("You are not invited to this meeting. Ask the host to add your email to the invite list.");
+          setIsJoining(false);
+          setIsLoading(false);
+          return;
+        }
         throw new Error(errorData.detail || "Failed to join meeting");
       }
 
@@ -514,11 +546,14 @@ function MeetingRoomContent() {
   }
 
   if (error) {
+    const isAccessDenied = error.toLowerCase().includes("not invited");
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="p-12 max-w-md">
           <div className="text-center space-y-4">
-            <h2 className="text-xl font-semibold text-destructive">Error</h2>
+            <h2 className="text-xl font-semibold text-destructive">
+              {isAccessDenied ? "Access Denied" : "Error"}
+            </h2>
             <p className="text-sm text-muted-foreground">{error}</p>
             <Button onClick={() => navigate("/dashboard")}>
               Back to Dashboard
