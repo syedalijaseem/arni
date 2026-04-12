@@ -51,6 +51,7 @@ class DocumentChunkCreate(BaseModel):
     text: str
     embedding: list[float]
     source: str = "document"
+    has_table: bool = False
 
 
 class DocumentChunkResponse(BaseModel):

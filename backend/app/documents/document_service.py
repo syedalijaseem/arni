@@ -161,6 +161,7 @@ async def upload_document(
                 chunk_index=i,
                 text=chunk,
                 embedding=embedding,
+                has_table="[TABLE" in chunk,
             ).model_dump()
             for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
         ]

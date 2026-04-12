@@ -1,17 +1,23 @@
 """
 Text Chunker — splits extracted text into overlapping token windows.
 
+Table-aware: text between [TABLE] and [/TABLE] markers is never split
+mid-table. If a table exceeds the chunk size, it is split by row groups
+with the header row repeated in each chunk.
+
 Spec (SRS §4.4):
 - Default chunk size: 300 tokens
-- Default overlap: 100 tokens (increased from 50 for better boundary context)
-- Min chunk size: 200 tokens (except for final chunk which may be smaller)
-- Max chunk size: 400 tokens
+- Default overlap: 100 tokens
 - Tokenizer: cl100k_base (compatible with text-embedding-3-large)
 """
 
+import re
 import tiktoken
 
 _ENCODER = None
+
+# Matches [TABLE ...] ... [/TABLE] blocks including newlines
+_TABLE_RE = re.compile(r"(\[TABLE[^\]]*\].*?\[/TABLE\])", re.DOTALL)
 
 
 def _get_encoder() -> tiktoken.Encoding:
@@ -21,13 +27,110 @@ def _get_encoder() -> tiktoken.Encoding:
     return _ENCODER
 
 
+def _token_len(text: str) -> int:
+    return len(_get_encoder().encode(text))
+
+
+def _chunk_plain(
+    text: str,
+    chunk_size_tokens: int,
+    overlap_tokens: int,
+) -> list[str]:
+    """Chunk plain (non-table) text with overlapping token windows."""
+    if not text or not text.strip():
+        return []
+
+    enc = _get_encoder()
+    tokens = enc.encode(text)
+
+    if len(tokens) <= chunk_size_tokens:
+        return [enc.decode(tokens)]
+
+    chunks: list[str] = []
+    step = max(chunk_size_tokens - overlap_tokens, 1)
+    start = 0
+
+    while start < len(tokens):
+        end = min(start + chunk_size_tokens, len(tokens))
+        chunks.append(enc.decode(tokens[start:end]))
+        if end == len(tokens):
+            break
+        start += step
+
+    return chunks
+
+
+def _chunk_table(table_text: str, chunk_size_tokens: int) -> list[str]:
+    """Split a large table into row-group chunks, each prefixed with headers.
+
+    If the table fits in one chunk, return it as-is.
+    Otherwise, split by rows and prepend the header + separator to each group.
+    """
+    if _token_len(table_text) <= chunk_size_tokens:
+        return [table_text]
+
+    lines = table_text.split("\n")
+
+    # Find header: first line after [TABLE ...] marker, plus separator
+    header_lines: list[str] = []
+    data_lines: list[str] = []
+    past_separator = False
+
+    for line in lines:
+        if line.startswith("[TABLE") or line.startswith("[/TABLE"):
+            header_lines.append(line)
+            continue
+        if not past_separator:
+            header_lines.append(line)
+            if line.startswith("-"):
+                past_separator = True
+        else:
+            data_lines.append(line)
+
+    header_text = "\n".join(header_lines)
+    header_tokens = _token_len(header_text)
+    budget = chunk_size_tokens - header_tokens - 5  # margin
+
+    if budget <= 0:
+        # Header alone fills the chunk — just return the whole table
+        return [table_text]
+
+    chunks: list[str] = []
+    current_rows: list[str] = []
+    current_tokens = 0
+
+    for row in data_lines:
+        row_tokens = _token_len(row)
+        if current_rows and current_tokens + row_tokens > budget:
+            chunk = header_text + "\n" + "\n".join(current_rows)
+            # Close the table marker if the header had an opening one
+            if "[TABLE" in header_text and "[/TABLE]" not in chunk:
+                chunk += "\n[/TABLE]"
+            chunks.append(chunk)
+            current_rows = []
+            current_tokens = 0
+        current_rows.append(row)
+        current_tokens += row_tokens
+
+    if current_rows:
+        chunk = header_text + "\n" + "\n".join(current_rows)
+        if "[TABLE" in header_text and "[/TABLE]" not in chunk:
+            chunk += "\n[/TABLE]"
+        chunks.append(chunk)
+
+    return chunks if chunks else [table_text]
+
+
 def chunk(
     text: str,
     chunk_size_tokens: int = 300,
     overlap_tokens: int = 100,
 ) -> list[str]:
     """
-    Split text into overlapping token windows.
+    Split text into overlapping token windows, preserving table blocks.
+
+    Table blocks (wrapped in [TABLE]...[/TABLE]) are never split mid-row.
+    Plain text between tables is chunked with the standard overlap strategy.
 
     Args:
         text: The full extracted document text.
@@ -41,28 +144,20 @@ def chunk(
     if not text or not text.strip():
         return []
 
-    enc = _get_encoder()
-    tokens = enc.encode(text)
-    total_tokens = len(tokens)
+    # Split text into alternating plain / table segments
+    segments = _TABLE_RE.split(text)
 
-    if total_tokens == 0:
-        return []
+    all_chunks: list[str] = []
+    for segment in segments:
+        segment = segment.strip()
+        if not segment:
+            continue
 
-    if total_tokens <= chunk_size_tokens:
-        return [enc.decode(tokens)]
+        if segment.startswith("[TABLE"):
+            all_chunks.extend(_chunk_table(segment, chunk_size_tokens))
+        else:
+            all_chunks.extend(
+                _chunk_plain(segment, chunk_size_tokens, overlap_tokens)
+            )
 
-    chunks: list[str] = []
-    step = chunk_size_tokens - overlap_tokens
-    if step <= 0:
-        step = 1
-
-    start = 0
-    while start < total_tokens:
-        end = min(start + chunk_size_tokens, total_tokens)
-        chunk_tokens = tokens[start:end]
-        chunks.append(enc.decode(chunk_tokens))
-        if end == total_tokens:
-            break
-        start += step
-
-    return chunks
+    return all_chunks

@@ -1,6 +1,9 @@
 """
 Text Extractor — pulls raw text from PDF, DOCX, and TXT files.
 
+PDF extraction detects and preserves tables as structured text
+with explicit header-value pairings for better RAG retrieval.
+
 Supported MIME types:
 - application/pdf
 - application/vnd.openxmlformats-officedocument.wordprocessingml.document
@@ -55,18 +58,62 @@ def _extract_txt(file_bytes: bytes) -> str:
         return file_bytes.decode("latin-1")
 
 
+def _format_table_as_text(table: list) -> str:
+    """Convert a pdfplumber table to explicit header-value pairs.
+
+    Each data row is rendered as "Header1: value1, Header2: value2, ..."
+    so that RAG retrieval can match metrics to their column names.
+    """
+    if not table or not table[0]:
+        return ""
+
+    headers = [str(h).strip() if h else "" for h in table[0]]
+
+    rows: list[str] = []
+    # Header row as pipe-delimited for readability
+    rows.append(" | ".join(h for h in headers if h))
+    rows.append("-" * 50)
+
+    for row in table[1:]:
+        if not row or not any(cell for cell in row):
+            continue
+        parts: list[str] = []
+        for i, cell in enumerate(row):
+            if cell and i < len(headers) and headers[i]:
+                parts.append(f"{headers[i]}: {str(cell).strip()}")
+        if parts:
+            rows.append(", ".join(parts))
+
+    return "\n".join(rows)
+
+
 def _extract_pdf(file_bytes: bytes) -> str:
-    """Extract text from a PDF using pdfplumber."""
+    """Extract text from a PDF with table detection.
+
+    Tables are extracted first per page and wrapped in [TABLE] markers
+    so the chunker can keep them intact. Regular page text follows.
+    """
     import pdfplumber
 
-    pages: list[str] = []
+    parts: list[str] = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages):
+            # Extract tables first
+            tables = page.extract_tables()
+            for table in tables:
+                if table:
+                    table_text = _format_table_as_text(table)
+                    if table_text.strip():
+                        parts.append(
+                            f"[TABLE on page {page_num + 1}]\n{table_text}\n[/TABLE]"
+                        )
+
+            # Then extract regular text
             page_text = page.extract_text()
             if page_text:
-                pages.append(page_text)
+                parts.append(page_text)
 
-    return "\n".join(pages)
+    return "\n\n".join(parts)
 
 
 def _extract_docx(file_bytes: bytes) -> str:

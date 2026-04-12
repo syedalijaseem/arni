@@ -36,6 +36,13 @@ _STOP_WORDS = frozenset({
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+(?:\.[0-9]+)?")
 
+_METRIC_KEYWORDS = frozenset({
+    "accuracy", "score", "performance", "result", "metric", "metrics",
+    "percent", "f1", "precision", "recall", "dataset", "benchmark",
+    "evaluate", "evaluation", "comparison", "compare", "table", "figure",
+    "auc", "bleu", "rouge", "loss", "error", "rate",
+})
+
 
 def _extract_keywords(query: str) -> list[str]:
     """Extract meaningful search terms from a query, removing stop words."""
@@ -137,6 +144,7 @@ def _build_result(doc: dict, source_type: str) -> dict[str, Any]:
         "source": source,
         "text": text,
         "score": doc.get("score", 0.0),
+        "has_table": doc.get("has_table", False),
         "attribution": attribution,
     }
 
@@ -223,21 +231,44 @@ async def retrieve(
     # 5. Deduplicate — keep highest score per unique text
     unique_results = _deduplicate(all_results)
 
-    # 6. Sort by score descending and return top_k
+    # 6. Boost table chunks when query mentions metrics/scores
+    query_tokens = set(_WORD_RE.findall(query_text.lower()))
+    is_metric_query = bool(query_tokens & _METRIC_KEYWORDS)
+
+    if is_metric_query:
+        for r in unique_results:
+            if r.get("has_table"):
+                r["score"] = r.get("score", 0.0) * 1.2
+
+    # 7. Sort by score descending and return top_k
     unique_results.sort(key=lambda r: r.get("score", 0.0), reverse=True)
 
-    # Remove internal field before returning
+    # For metric queries, ensure at least 2 table chunks if available
+    if is_metric_query:
+        table_in_top = sum(1 for r in unique_results[:top_k] if r.get("has_table"))
+        if table_in_top < 2:
+            remaining_tables = [
+                r for r in unique_results[top_k:] if r.get("has_table")
+            ]
+            for t in remaining_tables[:2 - table_in_top]:
+                unique_results.insert(top_k - 1, t)
+
+    # Remove internal fields before returning
     for r in unique_results:
         r.pop("_search_type", None)
+        r.pop("has_table", None)
+
+    final_k = top_k + 2 if is_metric_query else top_k
 
     logger.info(
-        "Hybrid retrieval: meeting=%s query=%r → %d vector + %d keyword → %d unique (returning top %d)",
+        "Hybrid retrieval: meeting=%s query=%r metric=%s → %d vector + %d keyword → %d unique (returning top %d)",
         meeting_id,
         query_text[:60],
+        is_metric_query,
         len(vector_transcript) + len(vector_docs),
         len(kw_transcript) + len(kw_docs),
         len(unique_results),
-        min(top_k, len(unique_results)),
+        min(final_k, len(unique_results)),
     )
 
-    return unique_results[:top_k]
+    return unique_results[:final_k]
