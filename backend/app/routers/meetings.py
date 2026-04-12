@@ -557,11 +557,6 @@ async def join_meeting(
         _start_summary_loop(meeting_id)
         _start_bot_health_monitor(meeting_id)
 
-        # For reconvened meetings, speak a memory-based opening
-        # Uses a longer delay to ensure bot has fully joined the room
-        if is_reconvened and meeting.get("context_summary"):
-            asyncio.create_task(_speak_reconvene_opening(meeting_id, meeting))
-
     # Generate Daily.co token
     if not meeting.get("daily_room_name"):
         raise HTTPException(
