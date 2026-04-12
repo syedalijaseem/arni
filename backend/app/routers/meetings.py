@@ -141,6 +141,7 @@ def _meeting_response(meeting: dict) -> MeetingResponse:
         timeline=meeting.get("timeline", []),
         parent_meeting_id=meeting.get("parent_meeting_id"),
         context_summary=meeting.get("context_summary"),
+        reconvened_by=meeting.get("reconvened_by"),
     )
 
 
@@ -240,6 +241,7 @@ async def dashboard(
             duration_seconds=m.get("duration_seconds"),
             participant_count=len(m.get("participant_ids", [])),
             action_item_count=len(m.get("action_item_ids", [])),
+            reconvened_by=m.get("reconvened_by"),
         )
         for m in meetings
     ]
@@ -296,6 +298,7 @@ async def search_meetings(
             duration_seconds=m.get("duration_seconds"),
             participant_count=len(m.get("participant_ids", [])),
             action_item_count=len(m.get("action_item_ids", [])),
+            reconvened_by=m.get("reconvened_by"),
         )
         for m in meetings
     ]
@@ -545,6 +548,7 @@ async def list_meetings(
                 duration_seconds=meeting.get("duration_seconds"),
                 participant_count=len(meeting.get("participant_ids", [])),
                 action_item_count=len(meeting.get("action_item_ids", [])),
+                reconvened_by=meeting.get("reconvened_by"),
             )
         )
 
@@ -829,6 +833,12 @@ async def reconvene_meeting(
             detail="Can only reconvene ended meetings",
         )
 
+    if parent.get("reconvened_by"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This meeting has already been reconvened. You can reconvene the follow-up meeting instead.",
+        )
+
     # Build new meeting
     invite_code = _generate_invite_code()
     invite_link = f"{settings.FRONTEND_URL}/meeting/{invite_code}"
@@ -872,23 +882,50 @@ async def reconvene_meeting(
     result = await db.meetings.insert_one(meeting_doc)
     meeting_doc["_id"] = result.inserted_id
 
-    # Copy parent meeting document references (chunks) to new meeting
+    # Mark parent as reconvened
+    new_meeting_id = str(result.inserted_id)
+    await db.meetings.update_one(
+        {"_id": parent["_id"]},
+        {"$set": {"reconvened_by": new_meeting_id}},
+    )
+
+    # Copy parent meeting documents and their chunks to new meeting
     try:
-        parent_chunks = await db.document_chunks.find(
-            {"meeting_id": meeting_id}
-        ).to_list(length=10000)
-        if parent_chunks:
-            new_meeting_id = str(result.inserted_id)
-            for chunk in parent_chunks:
+        parent_docs = await db.documents.find({
+            "meeting_id": str(parent["_id"]),
+            "status": "ready",
+        }).to_list(length=50)
+
+        total_chunks = 0
+        for doc in parent_docs:
+            old_doc_id = str(doc["_id"])
+            # Insert a copy of the document record
+            new_doc = {k: v for k, v in doc.items() if k != "_id"}
+            new_doc["meeting_id"] = new_meeting_id
+            new_doc["copied_from"] = old_doc_id
+            new_doc["source_meeting_id"] = str(parent["_id"])
+            new_doc_result = await db.documents.insert_one(new_doc)
+            new_doc_id = str(new_doc_result.inserted_id)
+
+            # Copy all chunks for this document with remapped IDs
+            chunks = await db.document_chunks.find({
+                "document_id": old_doc_id,
+            }).to_list(length=1000)
+            for chunk in chunks:
                 chunk.pop("_id", None)
                 chunk["meeting_id"] = new_meeting_id
-            await db.document_chunks.insert_many(parent_chunks)
+                chunk["document_id"] = new_doc_id
+            if chunks:
+                await db.document_chunks.insert_many(chunks)
+                total_chunks += len(chunks)
+
+        if parent_docs:
             logger.info(
-                "Copied %d document chunks from meeting=%s to meeting=%s",
-                len(parent_chunks), meeting_id, new_meeting_id,
+                "Copied %d documents (%d chunks) from meeting=%s to meeting=%s",
+                len(parent_docs), total_chunks, meeting_id, new_meeting_id,
             )
     except Exception as exc:
-        logger.warning("Failed to copy document chunks for reconvene: %s", exc)
+        logger.warning("Failed to copy documents for reconvene: %s", exc)
 
     return _meeting_response(meeting_doc)
 
@@ -1042,6 +1079,21 @@ async def ask_meeting(
 
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(status_code=503, detail="AI service not configured.")
+
+    # Diagnostic: log documents available for this meeting at query time
+    try:
+        docs = await db.documents.find(
+            {"meeting_id": meeting_id, "status": "ready"}
+        ).to_list(50)
+        chunk_count = await db.document_chunks.count_documents({"meeting_id": meeting_id})
+        logger.info(
+            "Chat endpoint: meeting=%s found %d docs (%s), %d chunks",
+            meeting_id, len(docs),
+            [d.get("filename") for d in docs],
+            chunk_count,
+        )
+    except Exception:
+        pass
 
     chunks = await retrieve(meeting_id, body.question, top_k=5)
 

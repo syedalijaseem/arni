@@ -28,6 +28,7 @@ interface Meeting {
   duration_seconds: number | null;
   participant_count: number;
   action_item_count: number;
+  reconvened_by: string | null;
 }
 
 interface MeetingDetail {
@@ -74,6 +75,7 @@ function Dashboard() {
   const navigate = useNavigate();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"active" | "history">("active");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newMeetingTitle, setNewMeetingTitle] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -338,6 +340,20 @@ function Dashboard() {
     }
   }
 
+  const activeMeetings = meetings.filter(
+    (m) => m.state === "created" || m.state === "active",
+  );
+  const historyMeetings = meetings.filter(
+    (m) => m.state === "ended" || m.state === "processed",
+  );
+  const displayedMeetings = activeTab === "active" ? activeMeetings : historyMeetings;
+
+  function formatDuration(seconds: number | null) {
+    if (!seconds) return null;
+    const mins = Math.floor(seconds / 60);
+    return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b bg-card">
@@ -544,8 +560,22 @@ function Dashboard() {
             </Dialog>
           </div>
 
-          {/* Search bar */}
-          <div className="mb-6">
+          {/* Search bar + Tabs */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
+            <div className="flex rounded-lg border overflow-hidden">
+              <button
+                className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "active" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"}`}
+                onClick={() => setActiveTab("active")}
+              >
+                My Meetings ({activeMeetings.length})
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "history" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"}`}
+                onClick={() => setActiveTab("history")}
+              >
+                History ({historyMeetings.length})
+              </button>
+            </div>
             <Input
               placeholder="Search meetings by title or summary..."
               value={searchQuery}
@@ -558,29 +588,22 @@ function Dashboard() {
             <div className="text-center py-12 text-muted-foreground">
               Loading meetings...
             </div>
-          ) : meetings.length === 0 ? (
+          ) : displayedMeetings.length === 0 ? (
             <Card className="p-12">
               <div className="text-center space-y-2">
-                {searchQuery ? (
-                  <>
-                    <h2 className="text-xl font-semibold">No results found</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Try a different search term.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <h2 className="text-xl font-semibold">No meetings yet</h2>
-                    <p className="text-sm text-muted-foreground">
-                      Create your first meeting to get started.
-                    </p>
-                  </>
-                )}
+                <h2 className="text-xl font-semibold">
+                  {activeTab === "active" ? "No active meetings" : "No past meetings"}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {activeTab === "active"
+                    ? "Create a meeting to get started."
+                    : "Ended meetings will appear here."}
+                </p>
               </div>
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {meetings.map((meeting) => (
+              {displayedMeetings.map((meeting) => (
                 <Card
                   key={meeting.id}
                   className="p-5 hover:shadow-md transition-shadow"
@@ -598,15 +621,18 @@ function Dashboard() {
                     </div>
 
                     <div className="space-y-1 text-sm text-muted-foreground">
-                      <div>Created: {formatDate(meeting.created_at)}</div>
+                      <div>{formatDate(meeting.created_at)}</div>
                       <div>Participants: {meeting.participant_count}</div>
+                      {meeting.duration_seconds && (
+                        <div>Duration: {formatDuration(meeting.duration_seconds)}</div>
+                      )}
                       {meeting.action_item_count > 0 && (
                         <div>Action Items: {meeting.action_item_count}</div>
                       )}
                     </div>
 
                     <div className="flex gap-2 pt-2">
-                      {(meeting.state === "ended" || meeting.state === "processed") ? (
+                      {activeTab === "history" ? (
                         <>
                           <Button
                             variant="outline"
@@ -617,13 +643,19 @@ function Dashboard() {
                             View Report
                           </Button>
                           {meeting.host_id === user?.id && (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => openReconveneDialog(meeting)}
-                            >
-                              Reconvene
-                            </Button>
+                            meeting.reconvened_by ? (
+                              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded self-center">
+                                Reconvened
+                              </span>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => openReconveneDialog(meeting)}
+                              >
+                                Reconvene
+                              </Button>
+                            )
                           )}
                         </>
                       ) : (

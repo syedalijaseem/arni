@@ -71,7 +71,7 @@ def _build_transcript_text(turns: list[dict]) -> str:
 async def _call_claude(system_prompt: str, user_message: str) -> str | None:
     """
     Make a single Claude API call and return response text.
-    Returns None on any error.
+    Returns None on any error or timeout (30s).
     """
     if not settings.ANTHROPIC_API_KEY:
         logger.error("ANTHROPIC_API_KEY not set — cannot run post-processing")
@@ -80,13 +80,19 @@ async def _call_claude(system_prompt: str, user_message: str) -> str | None:
     try:
         import anthropic
         client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
+        message = await asyncio.wait_for(
+            client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            ),
+            timeout=30.0,
         )
         return message.content[0].text
+    except asyncio.TimeoutError:
+        logger.error("Claude API call timed out in post-processing (30s)")
+        return None
     except Exception as exc:
         logger.error("Claude API error in post-processing: %s", exc)
         return None
@@ -279,11 +285,14 @@ async def run(meeting_id: str) -> None:
 
     except Exception as exc:
         logger.error("Post-processing failed for meeting=%s: %s", meeting_id, exc)
-        # Attempt to mark meeting as Ended even on failure so it doesn't stay Active
+        # Always transition to PROCESSED so the meeting never gets stuck
         try:
             await db.meetings.update_one(
                 {"_id": ObjectId(meeting_id)},
-                {"$set": {"state": MeetingState.ENDED}},
+                {"$set": {
+                    "state": MeetingState.PROCESSED,
+                    "summary": "Processing failed — no summary available.",
+                }},
             )
         except Exception:
             pass

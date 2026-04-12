@@ -270,18 +270,38 @@ async def retrieve(
     """
     db = get_database()
 
-    # 0. Log available documents for this meeting (best-effort, never blocks retrieval)
+    # 0. Log available documents and resolve effective search scope.
+    #    If no document_chunks exist for this meeting_id, fall back to
+    #    searching by document_id from the documents collection. This
+    #    handles edge cases (reconvened meetings, copied docs).
     try:
         doc_count = await db.document_chunks.count_documents({"meeting_id": meeting_id})
         ready_docs = await db.documents.find(
             {"meeting_id": meeting_id, "status": "ready"},
             {"filename": 1, "chunk_count": 1},
-        ).to_list(20)
+        ).to_list(50)
         logger.info(
             "retrieve: meeting=%s has %d chunk(s) across %d doc(s): %s",
             meeting_id, doc_count, len(ready_docs),
             [d.get("filename") for d in ready_docs],
         )
+
+        # If document records exist but no chunks matched by meeting_id,
+        # re-index chunks by document_id so searches can find them.
+        if ready_docs and doc_count == 0:
+            doc_ids = [str(d["_id"]) for d in ready_docs]
+            orphan_count = await db.document_chunks.count_documents(
+                {"document_id": {"$in": doc_ids}}
+            )
+            if orphan_count > 0:
+                logger.warning(
+                    "retrieve: meeting=%s has %d orphan chunks (document_id match, meeting_id mismatch) — patching",
+                    meeting_id, orphan_count,
+                )
+                await db.document_chunks.update_many(
+                    {"document_id": {"$in": doc_ids}, "meeting_id": {"$ne": meeting_id}},
+                    {"$set": {"meeting_id": meeting_id}},
+                )
     except Exception:
         pass
 

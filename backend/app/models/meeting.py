@@ -43,6 +43,7 @@ class MeetingResponse(BaseModel):
     # Reconvene fields
     parent_meeting_id: Optional[str] = None
     context_summary: Optional[str] = None
+    reconvened_by: Optional[str] = None
 
 
 class MeetingListResponse(BaseModel):
@@ -58,6 +59,7 @@ class MeetingListResponse(BaseModel):
     duration_seconds: Optional[int]
     participant_count: int
     action_item_count: int
+    reconvened_by: Optional[str] = None
 
 
 class JoinMeetingResponse(BaseModel):
