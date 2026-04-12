@@ -73,7 +73,14 @@ async def build_context(
     document_context = ""
     rag_scores: list[float] = []
     if command:
+        logger.info("build_context: retrieving docs for meeting=%s command=%r", meeting_id, command[:80])
         document_context, rag_scores = await _retrieve_document_context(meeting_id, command, top_k_docs)
+        logger.info(
+            "build_context: doc_context=%d chars, scores=%s",
+            len(document_context), rag_scores[:5] if rag_scores else "none",
+        )
+    else:
+        logger.info("build_context: no command, skipping doc retrieval")
 
     return {
         "system": ARNI_SYSTEM_PROMPT,
@@ -183,6 +190,12 @@ async def _retrieve_document_context(
     try:
         from app.rag.retriever import retrieve
         results = await retrieve(meeting_id, query, top_k=top_k)
+        logger.info("RAG retrieve returned %d results for meeting=%s query=%r",
+                     len(results) if results else 0, meeting_id, query[:80])
+        for i, r in enumerate(results or []):
+            logger.info("  RAG chunk %d (score=%.3f src=%s): %s",
+                        i, r.get("score", 0), r.get("source", "?"), r.get("text", "")[:120])
+
         if results:
             scores = [r.get("score", 0.0) for r in results]
 
@@ -200,11 +213,17 @@ async def _retrieve_document_context(
                 if text:
                     parts.append(f"[{label}]: {text}")
             if parts:
-                logger.info("RAG retrieved+reranked %d chunks for meeting=%s query=%r",
-                            len(parts), meeting_id, query[:80])
-                return "\n\n".join(parts), scores
+                ctx = "\n\n".join(parts)
+                logger.info("RAG final context: %d chunks, %d chars for meeting=%s",
+                            len(parts), len(ctx), meeting_id)
+                logger.info("RAG context preview: %.300s", ctx[:300])
+                return ctx, scores
+            else:
+                logger.warning("RAG results existed but produced 0 formatted parts")
+        else:
+            logger.info("RAG retrieve returned empty, falling back to scan")
     except Exception as exc:
-        logger.warning("RAG hybrid search failed: %s", exc)
+        logger.warning("RAG hybrid search failed: %s", exc, exc_info=True)
 
     # Fallback: simple scan of all document chunks for this meeting
     try:

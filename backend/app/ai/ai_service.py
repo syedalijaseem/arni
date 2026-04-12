@@ -81,13 +81,20 @@ async def ai_respond(
 
     # Enrich with document context if caller didn't already provide it
     if not context.get("document_context") and command:
+        logger.info("ai_respond: no doc context from caller, retrieving for meeting=%s", meeting_id)
         try:
             from app.ai.context_manager import _retrieve_document_context
             doc_ctx_text, doc_scores = await _retrieve_document_context(meeting_id, command)
             if doc_ctx_text:
                 context = {**context, "document_context": doc_ctx_text, "rag_scores": doc_scores}
+                logger.info("ai_respond: enriched with %d chars of doc context", len(doc_ctx_text))
+            else:
+                logger.info("ai_respond: secondary retrieval returned empty")
         except Exception as exc:
             logger.warning("Document context retrieval failed: %s", exc)
+    else:
+        logger.info("ai_respond: caller provided doc_context=%d chars",
+                     len(context.get("document_context", "")))
 
     if is_reasoning_request(command):
         selected_prompt = REASONING_PROMPT
@@ -109,6 +116,11 @@ async def ai_respond(
             command=command,
         )
         messages = _build_messages(command, context)
+
+        logger.info(
+            "ai_respond: sending to Claude — doc_ctx=%d chars, turns=%d, system_prompt=%d chars, command=%r",
+            len(doc_ctx), len(turns), len(system_prompt), command[:80],
+        )
 
         # Use higher token limit when document context is available
         max_tokens = MAX_TOKENS_WITH_DOCS if doc_ctx else MAX_TOKENS_DEFAULT

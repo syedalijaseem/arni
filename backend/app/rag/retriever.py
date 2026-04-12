@@ -39,6 +39,8 @@ _WORD_RE = re.compile(r"[a-zA-Z0-9]+(?:\.[0-9]+)?")
 # Matches uppercase acronyms/model names (ARL, SLAKE, PathVQA) and numbers
 _PROPER_RE = re.compile(r"[A-Z][A-Z0-9]{1,}(?:[a-z]+[A-Z0-9]*)*")
 _NUMBER_RE = re.compile(r"\d+\.?\d*%?")
+# Detects numeric-dense text (tables, results) — 3+ decimal numbers in the chunk
+_NUMERIC_DENSE_RE = re.compile(r"\d+\.\d+")
 
 _METRIC_KEYWORDS = frozenset({
     "accuracy", "score", "performance", "result", "metric", "metrics",
@@ -116,8 +118,9 @@ async def _keyword_search(
     """Search for chunks containing query keywords via regex matching.
 
     Scores each chunk by the fraction of keywords it contains.
-    This catches exact terms (model names, numbers, proper nouns)
-    that embedding similarity may miss.
+    Chunks containing both keywords AND numeric data (tables, metrics)
+    get a significant boost so actual results tables rank above
+    paragraphs that merely mention a term in passing.
     """
     if not keywords:
         return []
@@ -133,15 +136,71 @@ async def _keyword_search(
                 "text": {"$regex": pattern, "$options": "i"},
             },
             {"embedding": 0},  # exclude large vector from result
-        ).limit(top_k * 2)
+        ).limit(top_k * 3)
 
         async for doc in cursor:
-            text_lower = (doc.get("text") or "").lower()
-            matched = sum(1 for k in keywords if k in text_lower)
-            doc["score"] = matched / len(keywords)
+            text = doc.get("text") or ""
+            text_lower = text.lower()
+            matched = sum(1 for k in keywords if k.lower() in text_lower)
+            base_score = matched / len(keywords)
+
+            # Boost chunks that are numeric-dense (likely tables/results)
+            numeric_count = len(_NUMERIC_DENSE_RE.findall(text))
+            if numeric_count >= 3:
+                base_score += 0.3  # significant boost for metric-containing chunks
+
+            # Extra boost if chunk has explicit table markers or tabular structure
+            if doc.get("has_table") or "\t" in text or " | " in text:
+                base_score += 0.2
+
+            doc["score"] = base_score
             results.append(doc)
     except Exception as exc:
         logger.warning("Keyword search failed on %s: %s", collection.name, exc)
+
+    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return results[:top_k]
+
+
+async def _targeted_search(
+    collection,
+    meeting_id: str,
+    proper_names: list[str],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    """Find chunks containing a proper name AND numeric data.
+
+    This catches results tables that broad keyword search misses
+    because MongoDB cursors return matches in insertion order and
+    the table chunk may be far into the collection.
+    """
+    if not proper_names:
+        return []
+
+    # Require at least one proper name AND a decimal number pattern
+    name_pattern = "|".join(re.escape(n) for n in proper_names)
+    results = []
+    try:
+        cursor = collection.find(
+            {
+                "meeting_id": meeting_id,
+                "$and": [
+                    {"text": {"$regex": name_pattern, "$options": "i"}},
+                    {"text": {"$regex": r"\d+\.\d+"}},
+                ],
+            },
+            {"embedding": 0},
+        ).limit(top_k)
+
+        async for doc in cursor:
+            text = doc.get("text") or ""
+            # Score by: name matches + numeric density
+            name_hits = sum(1 for n in proper_names if n.lower() in text.lower())
+            num_count = len(_NUMERIC_DENSE_RE.findall(text))
+            doc["score"] = 0.8 + (name_hits * 0.1) + min(num_count * 0.02, 0.3)
+            results.append(doc)
+    except Exception as exc:
+        logger.warning("Targeted search failed on %s: %s", collection.name, exc)
 
     results.sort(key=lambda r: r.get("score", 0), reverse=True)
     return results[:top_k]
@@ -218,19 +277,43 @@ async def retrieve(
     # 2. Extract keywords for keyword search
     keywords = _extract_keywords(query_text)
 
-    # 3. Run all four searches in parallel (vector+keyword × 2 collections)
+    # 3. Run searches in parallel
     import asyncio
 
-    vector_transcript, vector_docs, kw_transcript, kw_docs = await asyncio.gather(
+    searches = [
         _vector_search(db.transcript_chunks, meeting_id, query_vector, top_k),
         _vector_search(db.document_chunks, meeting_id, query_vector, top_k),
         _keyword_search(db.transcript_chunks, meeting_id, keywords, top_k),
         _keyword_search(db.document_chunks, meeting_id, keywords, top_k),
-    )
+    ]
 
-    # 4. Build normalized results — keyword results first for priority
+    # For queries with proper names, add a targeted search requiring
+    # the proper name AND numeric data — catches results tables that
+    # broad keyword search misses due to MongoDB cursor limits
+    proper_names = list(_PROPER_RE.findall(query_text))
+    targeted_docs: list[dict[str, Any]] = []
+    if proper_names:
+        searches.append(
+            _targeted_search(db.document_chunks, meeting_id, proper_names, top_k)
+        )
+
+    search_results = await asyncio.gather(*searches)
+    vector_transcript = search_results[0]
+    vector_docs = search_results[1]
+    kw_transcript = search_results[2]
+    kw_docs = search_results[3]
+    if proper_names:
+        targeted_docs = search_results[4]
+
+    # 4. Build normalized results — targeted first, then keyword, then vector
+    targeted_results: list[dict[str, Any]] = []
     keyword_results: list[dict[str, Any]] = []
     vector_results: list[dict[str, Any]] = []
+
+    for doc in targeted_docs:
+        r = _build_result(doc, "document")
+        r["_search_type"] = "targeted"
+        targeted_results.append(r)
 
     for doc in kw_docs:
         r = _build_result(doc, "document")
@@ -253,22 +336,22 @@ async def retrieve(
         vector_results.append(r)
 
     # 5. Boost keyword results that match proper names from the query
-    proper_names = {k.lower() for k in _PROPER_RE.findall(query_text)}
+    proper_names_lower = {k.lower() for k in proper_names}
     for r in keyword_results:
         text_lower = r.get("text", "").lower()
-        name_hits = sum(1 for name in proper_names if name in text_lower)
+        name_hits = sum(1 for name in proper_names_lower if name in text_lower)
         if name_hits > 0:
             r["score"] = max(r.get("score", 0.0), 0.8) + (name_hits * 0.1)
 
-    # Merge: keyword results first, then vector
-    all_results = keyword_results + vector_results
+    # Merge: targeted first (highest quality), then keyword, then vector
+    all_results = targeted_results + keyword_results + vector_results
 
     # 6. Deduplicate — keep highest score per unique text
     unique_results = _deduplicate(all_results)
 
     # 7. Boost table chunks when query mentions metrics/scores
     query_tokens = set(_WORD_RE.findall(query_text.lower()))
-    is_metric_query = bool(query_tokens & _METRIC_KEYWORDS) or bool(proper_names)
+    is_metric_query = bool(query_tokens & _METRIC_KEYWORDS) or bool(proper_names_lower)
 
     if is_metric_query:
         for r in unique_results:
@@ -286,11 +369,12 @@ async def retrieve(
     final_k = top_k + 2 if is_metric_query else top_k
 
     logger.info(
-        "Hybrid retrieval: meeting=%s query=%r metric=%s proper=%s → %d kw + %d vec → %d unique (top %d)",
+        "Hybrid retrieval: meeting=%s query=%r metric=%s proper=%s → %d targeted + %d kw + %d vec → %d unique (top %d)",
         meeting_id,
         query_text[:60],
         is_metric_query,
-        proper_names or "none",
+        proper_names_lower or "none",
+        len(targeted_results),
         len(keyword_results),
         len(vector_results),
         len(unique_results),
