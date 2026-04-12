@@ -236,6 +236,18 @@ function MeetingRoomContent() {
           return;
         }
 
+        // Handle Arni audio delivered via WebSocket (bypasses Daily.co virtual mic)
+        if (data.type === "arni_audio" && data.audio) {
+          try {
+            const audioUrl = `data:audio/wav;base64,${data.audio}`;
+            const audio = new Audio(audioUrl);
+            audio.play().catch(() => {});
+          } catch {
+            // best effort — audio playback not critical to block on
+          }
+          return;
+        }
+
         // Handle wake word events — show overlay + append note to transcript
         if (data.type === "wake_word") {
           setWakeWordEvent(data as WakeWordEvent);

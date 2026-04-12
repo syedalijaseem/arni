@@ -1,61 +1,76 @@
 """
-Audio injection into Daily.co meeting via Arni's bot track.
+Audio injection — delivers TTS audio to meeting participants.
 
-Arni's microphone track is tagged with `audio_track_tag: "ai-source"` so
-that Deepgram STT will never receive or transcribe Arni's own speech
-(FR-034, §3 Audio Feedback Loop Prevention).
+Primary path: broadcast base64-encoded WAV over WebSocket so every
+connected browser client can play it directly with the Web Audio API.
+Fallback: also attempt Daily.co virtual mic injection if a bot is present.
 """
 
 import asyncio
+import base64
 import logging
-from typing import Optional
+import struct
 
 logger = logging.getLogger(__name__)
 
-# This tag is set on Arni's Daily.co microphone track so the audio
-# routing layer can identify and exclude it from STT.
 AI_AUDIO_TRACK_TAG = "ai-source"
+
+
+def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
+    """Wrap raw PCM bytes in a WAV header so browsers can decode it."""
+    data_size = len(pcm)
+    byte_rate = sample_rate * channels * bits // 8
+    block_align = channels * bits // 8
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF", 36 + data_size, b"WAVE",
+        b"fmt ", 16, 1, channels, sample_rate, byte_rate, block_align, bits,
+        b"data", data_size,
+    )
+    return header + pcm
 
 
 async def inject_audio(audio_bytes: bytes, meeting_id: str, bot=None) -> bool:
     """
-    Inject audio bytes into the Daily.co meeting via Arni's bot track.
+    Deliver TTS audio to participants via WebSocket (primary) and
+    Daily.co virtual mic (secondary, best-effort).
 
-    Returns True on success, False on failure.
-    Retries up to 2 times on transient failures.
+    Returns True if WebSocket broadcast succeeded.
     """
     if not audio_bytes:
-        logger.warning("inject_audio called with empty audio_bytes — skipping for meeting %s", meeting_id)
+        logger.warning("inject_audio: empty audio — skipping for meeting %s", meeting_id)
         return False
 
+    # ── Primary: WebSocket broadcast ──────────────────────────────────
+    ws_ok = False
+    try:
+        from app.routers.transcripts import manager
+
+        wav = _pcm_to_wav(audio_bytes)
+        b64 = base64.b64encode(wav).decode("ascii")
+        await manager.broadcast(meeting_id, {
+            "type": "arni_audio",
+            "audio": b64,
+            "format": "wav",
+        })
+        logger.info(
+            "inject_audio: WebSocket broadcast OK, %d PCM bytes → %d WAV bytes, meeting=%s",
+            len(audio_bytes), len(wav), meeting_id,
+        )
+        ws_ok = True
+    except Exception as exc:
+        logger.error("inject_audio: WebSocket broadcast FAILED for meeting=%s: %s", meeting_id, exc)
+
+    # ── Secondary: Daily.co virtual mic (best-effort) ─────────────────
     if bot is None:
         from app.bot.bot_manager import bot_manager
         bot = bot_manager.active_bots.get(meeting_id)
 
-    if bot is None:
-        logger.error(
-            "inject_audio: no active bot for meeting %s — cannot inject audio",
-            meeting_id,
-        )
-        return False
-
-    max_attempts = 3
-    for attempt in range(1, max_attempts + 1):
+    if bot is not None:
         try:
-            logger.info(
-                "inject_audio: attempt %d/%d, %d bytes, meeting=%s",
-                attempt, max_attempts, len(audio_bytes), meeting_id,
-            )
             await bot.send_audio(audio_bytes)
-            logger.info("inject_audio: SUCCESS for meeting=%s", meeting_id)
-            return True
+            logger.info("inject_audio: Daily.co mic injection OK for meeting=%s", meeting_id)
         except Exception as exc:
-            logger.error(
-                "inject_audio: attempt %d/%d FAILED for meeting=%s: %s",
-                attempt, max_attempts, meeting_id, exc,
-            )
-            if attempt < max_attempts:
-                await asyncio.sleep(0.5 * attempt)
+            logger.warning("inject_audio: Daily.co mic injection failed for meeting=%s: %s", meeting_id, exc)
 
-    logger.error("inject_audio: all %d attempts failed for meeting=%s", max_attempts, meeting_id)
-    return False
+    return ws_ok
