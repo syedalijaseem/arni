@@ -69,6 +69,43 @@ def _stop_summary_loop(meeting_id: str) -> None:
         logger.info("Summary loop stopped for meeting=%s", meeting_id)
 
 
+_health_tasks: dict[str, _asyncio.Task] = {}
+
+
+async def _monitor_bot_health(meeting_id: str) -> None:
+    """Check bot health every 30s and restart if it drops out."""
+    while True:
+        await _asyncio.sleep(30)
+        try:
+            db = get_database()
+            meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+            if not meeting or meeting.get("state") != MeetingState.ACTIVE:
+                break
+
+            bot = bot_manager.active_bots.get(meeting_id)
+            if not bot:
+                logger.warning("Bot missing for active meeting=%s — restarting", meeting_id)
+                _asyncio.create_task(bot_manager.start_bot_for_meeting(
+                    meeting_id=meeting_id,
+                    room_url=meeting["daily_room_url"],
+                    broadcast_callback=handle_bot_transcript,
+                    wake_word_callback=handle_wake_word,
+                ))
+        except Exception as exc:
+            logger.warning("Bot health check failed for meeting=%s: %s", meeting_id, exc)
+
+
+def _start_bot_health_monitor(meeting_id: str) -> None:
+    if meeting_id not in _health_tasks:
+        _health_tasks[meeting_id] = _asyncio.create_task(_monitor_bot_health(meeting_id))
+
+
+def _stop_bot_health_monitor(meeting_id: str) -> None:
+    task = _health_tasks.pop(meeting_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
 async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
     """Generate, speak via TTS, and broadcast a memory-based opening."""
     import anthropic
@@ -481,8 +518,9 @@ async def join_meeting(
             wake_word_callback=handle_wake_word,
         ))
 
-        # Start rolling summary loop
+        # Start rolling summary loop and bot health monitor
         _start_summary_loop(meeting_id)
+        _start_bot_health_monitor(meeting_id)
 
         # For reconvened meetings, speak a memory-based opening
         if meeting.get("parent_meeting_id") and meeting.get("context_summary"):
@@ -815,8 +853,9 @@ async def end_meeting(
         {"$set": {"state": MeetingState.ENDED, "ended_at": datetime.now(timezone.utc)}},
     )
 
-    # Stop rolling summary loop
+    # Stop rolling summary loop and bot health monitor
     _stop_summary_loop(meeting_id)
+    _stop_bot_health_monitor(meeting_id)
 
     # Stop Arni bot
     try:
