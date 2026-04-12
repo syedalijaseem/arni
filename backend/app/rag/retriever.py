@@ -36,6 +36,10 @@ _STOP_WORDS = frozenset({
 
 _WORD_RE = re.compile(r"[a-zA-Z0-9]+(?:\.[0-9]+)?")
 
+# Matches uppercase acronyms/model names (ARL, SLAKE, PathVQA) and numbers
+_PROPER_RE = re.compile(r"[A-Z][A-Z0-9]{1,}(?:[a-z]+[A-Z0-9]*)*")
+_NUMBER_RE = re.compile(r"\d+\.?\d*%?")
+
 _METRIC_KEYWORDS = frozenset({
     "accuracy", "score", "performance", "result", "metric", "metrics",
     "percent", "f1", "precision", "recall", "dataset", "benchmark",
@@ -45,9 +49,28 @@ _METRIC_KEYWORDS = frozenset({
 
 
 def _extract_keywords(query: str) -> list[str]:
-    """Extract meaningful search terms from a query, removing stop words."""
+    """Extract meaningful search terms from a query, removing stop words.
+
+    Preserves uppercase model names (ARL, SLAKE, PathVQA) and numbers
+    as-is for exact matching, alongside lowercased content words.
+    """
+    # High-priority: uppercase acronyms and numbers (case-preserved)
+    proper_names = _PROPER_RE.findall(query)
+    numbers = _NUMBER_RE.findall(query)
+
+    # Standard: lowercased content words
     tokens = _WORD_RE.findall(query.lower())
-    keywords = [t for t in tokens if t not in _STOP_WORDS and len(t) > 1]
+    content_words = [t for t in tokens if t not in _STOP_WORDS and len(t) > 2]
+
+    # Merge without duplicates, proper names first
+    seen: set[str] = set()
+    keywords: list[str] = []
+    for term in proper_names + numbers + content_words:
+        key = term.lower()
+        if key not in seen:
+            seen.add(key)
+            keywords.append(term)
+
     return keywords
 
 
@@ -205,53 +228,55 @@ async def retrieve(
         _keyword_search(db.document_chunks, meeting_id, keywords, top_k),
     )
 
-    # 4. Build normalized results
-    all_results: list[dict[str, Any]] = []
-
-    for doc in vector_transcript:
-        r = _build_result(doc, "transcript")
-        r["_search_type"] = "vector"
-        all_results.append(r)
-
-    for doc in vector_docs:
-        r = _build_result(doc, "document")
-        r["_search_type"] = "vector"
-        all_results.append(r)
-
-    for doc in kw_transcript:
-        r = _build_result(doc, "transcript")
-        r["_search_type"] = "keyword"
-        all_results.append(r)
+    # 4. Build normalized results — keyword results first for priority
+    keyword_results: list[dict[str, Any]] = []
+    vector_results: list[dict[str, Any]] = []
 
     for doc in kw_docs:
         r = _build_result(doc, "document")
         r["_search_type"] = "keyword"
-        all_results.append(r)
+        keyword_results.append(r)
 
-    # 5. Deduplicate — keep highest score per unique text
+    for doc in kw_transcript:
+        r = _build_result(doc, "transcript")
+        r["_search_type"] = "keyword"
+        keyword_results.append(r)
+
+    for doc in vector_docs:
+        r = _build_result(doc, "document")
+        r["_search_type"] = "vector"
+        vector_results.append(r)
+
+    for doc in vector_transcript:
+        r = _build_result(doc, "transcript")
+        r["_search_type"] = "vector"
+        vector_results.append(r)
+
+    # 5. Boost keyword results that match proper names from the query
+    proper_names = {k.lower() for k in _PROPER_RE.findall(query_text)}
+    for r in keyword_results:
+        text_lower = r.get("text", "").lower()
+        name_hits = sum(1 for name in proper_names if name in text_lower)
+        if name_hits > 0:
+            r["score"] = max(r.get("score", 0.0), 0.8) + (name_hits * 0.1)
+
+    # Merge: keyword results first, then vector
+    all_results = keyword_results + vector_results
+
+    # 6. Deduplicate — keep highest score per unique text
     unique_results = _deduplicate(all_results)
 
-    # 6. Boost table chunks when query mentions metrics/scores
+    # 7. Boost table chunks when query mentions metrics/scores
     query_tokens = set(_WORD_RE.findall(query_text.lower()))
-    is_metric_query = bool(query_tokens & _METRIC_KEYWORDS)
+    is_metric_query = bool(query_tokens & _METRIC_KEYWORDS) or bool(proper_names)
 
     if is_metric_query:
         for r in unique_results:
             if r.get("has_table"):
                 r["score"] = r.get("score", 0.0) * 1.2
 
-    # 7. Sort by score descending and return top_k
+    # 8. Sort by score descending
     unique_results.sort(key=lambda r: r.get("score", 0.0), reverse=True)
-
-    # For metric queries, ensure at least 2 table chunks if available
-    if is_metric_query:
-        table_in_top = sum(1 for r in unique_results[:top_k] if r.get("has_table"))
-        if table_in_top < 2:
-            remaining_tables = [
-                r for r in unique_results[top_k:] if r.get("has_table")
-            ]
-            for t in remaining_tables[:2 - table_in_top]:
-                unique_results.insert(top_k - 1, t)
 
     # Remove internal fields before returning
     for r in unique_results:
@@ -261,12 +286,13 @@ async def retrieve(
     final_k = top_k + 2 if is_metric_query else top_k
 
     logger.info(
-        "Hybrid retrieval: meeting=%s query=%r metric=%s → %d vector + %d keyword → %d unique (returning top %d)",
+        "Hybrid retrieval: meeting=%s query=%r metric=%s proper=%s → %d kw + %d vec → %d unique (top %d)",
         meeting_id,
         query_text[:60],
         is_metric_query,
-        len(vector_transcript) + len(vector_docs),
-        len(kw_transcript) + len(kw_docs),
+        proper_names or "none",
+        len(keyword_results),
+        len(vector_results),
         len(unique_results),
         min(final_k, len(unique_results)),
     )

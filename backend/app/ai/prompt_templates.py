@@ -21,6 +21,7 @@ WHEN ANSWERING FROM DOCUMENTS (RAG):
 - If multiple metrics exist, list the most important ones concisely.
 - Always cite which document the information came from.
 - If no metrics exist for the question, say so explicitly.
+- Tables may be formatted as pipe-separated rows like "Model | Year | OE | CE". Read these carefully — each row is one model's metrics.
 
 WHEN ANSWERING FROM MEETING CONTEXT:
 - Reference who said what: "John mentioned that..."

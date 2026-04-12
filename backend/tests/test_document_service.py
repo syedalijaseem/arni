@@ -19,8 +19,8 @@ class TestFileValidation:
 
         with pytest.raises(ValueError, match="unsupported"):
             await validate_upload(
-                filename="report.xlsx",
-                content_type="application/vnd.ms-excel",
+                filename="image.png",
+                content_type="image/png",
                 file_size_bytes=1024,
                 existing_doc_count=0,
             )
