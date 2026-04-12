@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         "harney,marni"
     )
     WAKE_COOLDOWN_SECONDS: int = 5
-    UTTERANCE_SILENCE_MS: int = 800
+    UTTERANCE_SILENCE_MS: int = 1200
 
     # AI / Claude
     ANTHROPIC_API_KEY: str = ""

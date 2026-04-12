@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 FALLBACK_MESSAGE = "Sorry, I couldn't respond right now. Try again in a moment."
 CLAUDE_MODEL = "claude-sonnet-4-5"
-MAX_TOKENS_DEFAULT = 150
-MAX_TOKENS_WITH_DOCS = 300
+MAX_TOKENS_DEFAULT = 120
+MAX_TOKENS_WITH_DOCS = 120
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 

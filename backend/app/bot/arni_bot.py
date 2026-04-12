@@ -193,6 +193,15 @@ class ArniBot:
 
     # ── Utterance buffer ─────────────────────────────────────────────
 
+    # Words that signal the speaker is still mid-thought
+    _TRAILING_INCOMPLETE = {
+        "what", "which", "who", "where", "when", "how",
+        "can", "could", "would", "should", "will",
+        "tell", "about", "regarding", "concerning",
+        "the", "a", "an", "is", "are", "was", "were",
+        "of", "for", "to", "and", "or", "but", "that", "this",
+    }
+
     def _append_buffer(self, speaker_id: str, speaker_name: str, text: str):
         buf = self._buffers.get(speaker_id)
         if buf:
@@ -200,7 +209,7 @@ class ArniBot:
                 buf["timer"].cancel()
             buf["text"] = (buf["text"] + " " + text).strip()
         else:
-            buf = {"text": text, "name": speaker_name, "timer": None}
+            buf = {"text": text, "name": speaker_name, "timer": None, "retries": 0}
             self._buffers[speaker_id] = buf
 
         buf["timer"] = self.loop.call_later(
@@ -215,12 +224,38 @@ class ArniBot:
         if buf and buf["timer"] is not None:
             buf["timer"].cancel()
 
+    def _looks_incomplete(self, text: str) -> bool:
+        """Return True if the utterance appears to be cut off mid-thought."""
+        words = text.strip().rstrip(".,!?").split()
+        if not words:
+            return True
+        # Short utterances ending with a trailing word are likely incomplete
+        if len(words) <= 6 and words[-1].lower() in self._TRAILING_INCOMPLETE:
+            return True
+        return False
+
     async def _flush_buffer(self, speaker_id: str):
-        buf = self._buffers.pop(speaker_id, None)
+        buf = self._buffers.get(speaker_id)
         if not buf or not buf["text"].strip():
+            self._buffers.pop(speaker_id, None)
             return
         if self._busy:
+            self._buffers.pop(speaker_id, None)
             return
+
+        # If utterance looks incomplete and we haven't waited too long, reschedule
+        if self._looks_incomplete(buf["text"]) and buf.get("retries", 0) < 2:
+            buf["retries"] = buf.get("retries", 0) + 1
+            logger.debug("Utterance looks incomplete (%r), waiting more", buf["text"][:60])
+            buf["timer"] = self.loop.call_later(
+                self._silence_s,
+                lambda sid=speaker_id: asyncio.run_coroutine_threadsafe(
+                    self._flush_buffer(sid), self.loop
+                ),
+            )
+            return
+
+        self._buffers.pop(speaker_id, None)
 
         result = self.wake_word_detector.detect(
             buf["text"], speaker_id, buf["name"],
