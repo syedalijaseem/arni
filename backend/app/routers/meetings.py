@@ -630,7 +630,9 @@ async def list_participants(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     user_oid = ObjectId(current_user["id"])
-    if user_oid not in meeting.get("participant_ids", []):
+    is_participant = user_oid in meeting.get("participant_ids", [])
+    is_host = str(meeting["host_id"]) == current_user["id"]
+    if not is_participant and not is_host:
         raise HTTPException(status_code=403, detail="Access denied")
 
     host_id = str(meeting["host_id"])

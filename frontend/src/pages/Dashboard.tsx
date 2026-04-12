@@ -274,6 +274,8 @@ function Dashboard() {
     setReconveneTitle(`Follow-up: ${meeting.title || "Untitled Meeting"}`);
     setReconveneEmails([]);
     setReconveneEmailInput("");
+    setReconveneSummary("");
+
     // Fetch meeting detail + participants in parallel
     try {
       const [detailRes, participantsRes] = await Promise.all([
@@ -284,19 +286,26 @@ function Dashboard() {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
+
       if (detailRes.ok) {
         const detail: MeetingDetail = await detailRes.json();
         setReconveneSummary(detail.summary || "");
       }
+
       if (participantsRes.ok) {
         const participants: { id: string; email: string; is_host: boolean }[] = await participantsRes.json();
+        console.log("Reconvene participants:", participants);
         const emails = participants
           .filter((p) => !p.is_host && p.email)
           .map((p) => p.email.toLowerCase());
-        setReconveneEmails(emails);
+        if (emails.length > 0) {
+          setReconveneEmails(emails);
+        }
+      } else {
+        console.warn("Failed to fetch participants:", participantsRes.status);
       }
-    } catch {
-      // proceed without pre-populated data
+    } catch (err) {
+      console.warn("Reconvene dialog fetch error:", err);
     }
   }
 
