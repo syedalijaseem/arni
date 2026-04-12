@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DocumentUpload } from "@/components/DocumentUpload";
+import ArniVisualizer from "@/components/ArniVisualizer";
 import DailyIframe from "@daily-co/daily-js";
 import {
   DailyProvider,
@@ -608,12 +609,20 @@ function MeetingRoomContent() {
                   </div>
                 </Card>
               ) : (
-                participantIds.map((participantId) => (
-                  <ParticipantTile
-                    key={participantId}
-                    participantId={participantId}
-                  />
-                ))
+                <>
+                  {participantIds.map((participantId) => (
+                    <ParticipantTile
+                      key={participantId}
+                      participantId={participantId}
+                    />
+                  ))}
+                  <Card className="relative aspect-video bg-slate-900 overflow-hidden">
+                    <ArniVisualizer state={arniState === "listening" ? "listening" : arniState} />
+                    <div className="absolute bottom-2 left-2 bg-black/70 px-3 py-1 rounded text-sm text-white">
+                      Arni
+                    </div>
+                  </Card>
+                </>
               )}
             </div>
           )}
@@ -806,19 +815,6 @@ function MeetingRoomContent() {
             {isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
           </Button>
 
-          <Button
-            className={[
-              "ml-4 px-6 py-3 font-semibold transition-all select-none",
-              isRecordingPTT
-                ? "bg-red-600 hover:bg-red-700 text-white animate-pulse"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white",
-            ].join(" ")}
-            onPointerDown={startPTT}
-            onPointerUp={stopPTT}
-            onPointerLeave={stopPTT}
-          >
-            {isRecordingPTT ? "Recording..." : "Hold to Talk"}
-          </Button>
         </div>
       </footer>
       <DailyAudio />
