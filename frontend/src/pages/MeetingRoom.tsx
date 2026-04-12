@@ -335,9 +335,19 @@ function MeetingRoomContent() {
   }, [meeting?.id]);
 
   // Handle call state changes
-  useDailyEvent("joined-meeting", () => {
+  useDailyEvent("joined-meeting", async () => {
     console.log("Joined meeting successfully");
     setIsJoining(false);
+    // Explicitly activate audio input/output to ensure browser AudioContext is running.
+    // Without this, reconvened meetings may have silent audio playback.
+    if (daily) {
+      try {
+        await daily.setLocalAudio(true);
+        await daily.setLocalVideo(true);
+      } catch {
+        // ignore — best effort
+      }
+    }
   });
 
   useDailyEvent("left-meeting", () => {
