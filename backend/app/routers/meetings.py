@@ -459,19 +459,89 @@ async def list_meetings(
 # Access control endpoints (FR-058–FR-074)
 # ---------------------------------------------------------------------------
 
+
+class InviteRequest(BaseModel):
+    email: str
+
+
+@router.post("/{meeting_id}/invite")
 async def invite_participant(
     meeting_id: str,
-    email: str,
-    meeting: dict,
-) -> dict:
+    body: InviteRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Add an email address to the meeting's invite_list (host only)."""
     db = get_database()
-    meeting_oid = meeting["_id"] if not isinstance(meeting["_id"], str) else ObjectId(meeting["_id"])
+    meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if str(meeting["host_id"]) != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the host can invite participants")
+
     await db.meetings.update_one(
-        {"_id": meeting_oid},
-        {"$addToSet": {"invite_list": email.lower()}},
+        {"_id": meeting["_id"]},
+        {"$addToSet": {"invite_list": body.email.lower()}},
     )
-    return {"invited": True, "email": email}
+    return {"invited": True, "email": body.email.lower()}
+
+
+class ParticipantInfo(BaseModel):
+    id: str
+    name: str
+    email: str
+    is_host: bool
+
+
+@router.get("/{meeting_id}/participants", response_model=list[ParticipantInfo])
+async def list_participants(
+    meeting_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """List all participants in a meeting with their names."""
+    db = get_database()
+    meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    user_oid = ObjectId(current_user["id"])
+    if user_oid not in meeting.get("participant_ids", []):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    host_id = str(meeting["host_id"])
+    participants: list[ParticipantInfo] = []
+    for pid in meeting.get("participant_ids", []):
+        user = await db.users.find_one({"_id": pid})
+        if user:
+            participants.append(ParticipantInfo(
+                id=str(user["_id"]),
+                name=user.get("name", "Unknown"),
+                email=user.get("email", ""),
+                is_host=str(user["_id"]) == host_id,
+            ))
+    return participants
+
+
+@router.delete("/{meeting_id}/participants/{user_id}")
+async def remove_participant(
+    meeting_id: str,
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Remove a participant from the meeting (host only)."""
+    db = get_database()
+    meeting = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    if str(meeting["host_id"]) != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the host can remove participants")
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+
+    await db.meetings.update_one(
+        {"_id": meeting["_id"]},
+        {"$pull": {"participant_ids": ObjectId(user_id)}},
+    )
+    return {"removed": True, "user_id": user_id}
 
 
 async def admit_participant(

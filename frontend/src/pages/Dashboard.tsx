@@ -14,7 +14,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DocumentUpload } from "@/components/DocumentUpload";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 interface Meeting {
@@ -58,6 +57,13 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+const ACCEPTED_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+];
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+
 function Dashboard() {
   const { user, token, logout } = useAuth();
   const navigate = useNavigate();
@@ -68,10 +74,16 @@ function Dashboard() {
   const [isCreating, setIsCreating] = useState(false);
   const [createdMeeting, setCreatedMeeting] = useState<MeetingDetail | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [createStep, setCreateStep] = useState<"title" | "documents" | "done">("title");
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedQuery = useDebounce(searchQuery, 300);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Create dialog form state
+  const [inviteEmails, setInviteEmails] = useState<string[]>([]);
+  const [emailInput, setEmailInput] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadMeetings = useCallback(
     async (query: string) => {
@@ -96,7 +108,7 @@ function Dashboard() {
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
-          // silently ignore abort, log real errors
+          // silently ignore abort
         }
       } finally {
         setIsLoading(false);
@@ -109,32 +121,106 @@ function Dashboard() {
     loadMeetings(debouncedQuery);
   }, [debouncedQuery, loadMeetings]);
 
+  function resetCreateForm() {
+    setNewMeetingTitle("");
+    setInviteEmails([]);
+    setEmailInput("");
+    setSelectedFiles([]);
+    setCreatedMeeting(null);
+    setIsDragging(false);
+  }
+
+  function addEmail() {
+    const email = emailInput.trim().toLowerCase();
+    if (email && email.includes("@") && !inviteEmails.includes(email)) {
+      setInviteEmails((prev) => [...prev, email]);
+      setEmailInput("");
+    }
+  }
+
+  function removeEmail(email: string) {
+    setInviteEmails((prev) => prev.filter((e) => e !== email));
+  }
+
+  function handleEmailKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addEmail();
+    }
+  }
+
+  function addFiles(files: FileList | File[]) {
+    const valid = Array.from(files).filter((f) => {
+      if (!ACCEPTED_TYPES.includes(f.type)) return false;
+      if (f.size > MAX_FILE_SIZE) return false;
+      return !selectedFiles.some((s) => s.name === f.name);
+    });
+    if (valid.length > 0) {
+      setSelectedFiles((prev) => [...prev, ...valid]);
+    }
+  }
+
+  function removeFile(name: string) {
+    setSelectedFiles((prev) => prev.filter((f) => f.name !== name));
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  }
+
   async function handleCreateMeeting(e: React.FormEvent) {
     e.preventDefault();
+    if (!newMeetingTitle.trim()) return;
     setIsCreating(true);
 
     try {
+      // 1. Create the meeting
       const res = await fetch("/api/meetings/create", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title: newMeetingTitle || undefined,
-        }),
+        body: JSON.stringify({ title: newMeetingTitle.trim() }),
       });
 
-      if (res.ok) {
-        const meeting: MeetingDetail = await res.json();
-        setCreatedMeeting(meeting);
-        setNewMeetingTitle("");
-        setCreateStep("documents");
-        await loadMeetings(debouncedQuery);
-      } else {
+      if (!res.ok) {
         const error = await res.json();
         alert(error.detail || "Failed to create meeting");
+        return;
       }
+
+      const meeting: MeetingDetail = await res.json();
+
+      // 2. Upload documents (fire and forget — they process async)
+      for (const file of selectedFiles) {
+        const form = new FormData();
+        form.append("file", file);
+        fetch(`/api/meetings/${meeting.id}/documents`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        }).catch(() => {});
+      }
+
+      // 3. Send invites
+      for (const email of inviteEmails) {
+        fetch(`/api/meetings/${meeting.id}/invite`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ email }),
+        }).catch(() => {});
+      }
+
+      setCreatedMeeting(meeting);
+      await loadMeetings(debouncedQuery);
     } catch {
       alert("Failed to create meeting");
     } finally {
@@ -220,31 +306,103 @@ function Dashboard() {
 
             <Dialog open={isCreateOpen} onOpenChange={(open) => {
               setIsCreateOpen(open);
-              if (!open) { setCreateStep("title"); setCreatedMeeting(null); }
+              if (!open) resetCreateForm();
             }}>
               <DialogTrigger asChild>
                 <Button>Create Meeting</Button>
               </DialogTrigger>
-              <DialogContent>
-                {createStep === "title" && (
+              <DialogContent className="sm:max-w-lg">
+                {!createdMeeting ? (
                   <>
                     <DialogHeader>
                       <DialogTitle>Create New Meeting</DialogTitle>
                       <DialogDescription>
-                        Step 1 of 2 — Give your meeting a title.
+                        Set up your meeting with optional documents and participants.
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleCreateMeeting}>
-                      <div className="space-y-4 py-4">
+                      <div className="space-y-5 py-4">
+                        {/* Title */}
                         <div className="space-y-2">
-                          <Label htmlFor="title">Meeting Title</Label>
+                          <Label htmlFor="title">Meeting Title *</Label>
                           <Input
                             id="title"
                             placeholder="e.g., Team Standup"
                             value={newMeetingTitle}
                             onChange={(e) => setNewMeetingTitle(e.target.value)}
+                            required
                             autoFocus
                           />
+                        </div>
+
+                        {/* Documents drop zone */}
+                        <div className="space-y-2">
+                          <Label>Documents (optional)</Label>
+                          <div
+                            className={[
+                              "border-2 border-dashed rounded-lg p-4 text-center text-sm cursor-pointer transition-colors",
+                              isDragging
+                                ? "border-primary bg-primary/5"
+                                : "border-muted-foreground/25 hover:border-muted-foreground/50",
+                            ].join(" ")}
+                            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={handleDrop}
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept=".pdf,.docx,.txt"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
+                            />
+                            <p className="text-muted-foreground">
+                              Drop PDF, DOCX, or TXT files here or click to browse
+                            </p>
+                          </div>
+                          {selectedFiles.length > 0 && (
+                            <ul className="space-y-1 mt-2">
+                              {selectedFiles.map((f) => (
+                                <li key={f.name} className="flex items-center justify-between text-sm bg-muted/50 px-3 py-1.5 rounded">
+                                  <span className="truncate">{f.name}</span>
+                                  <button type="button" className="ml-2 text-muted-foreground hover:text-destructive" onClick={() => removeFile(f.name)}>
+                                    &times;
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        {/* Email invites */}
+                        <div className="space-y-2">
+                          <Label>Invite Participants (optional)</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type="email"
+                              placeholder="colleague@company.com"
+                              value={emailInput}
+                              onChange={(e) => setEmailInput(e.target.value)}
+                              onKeyDown={handleEmailKeyDown}
+                            />
+                            <Button type="button" variant="outline" size="sm" onClick={addEmail} disabled={!emailInput.trim()}>
+                              Add
+                            </Button>
+                          </div>
+                          {inviteEmails.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {inviteEmails.map((email) => (
+                                <span key={email} className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs px-2.5 py-1 rounded-full">
+                                  {email}
+                                  <button type="button" className="hover:text-destructive" onClick={() => removeEmail(email)}>
+                                    &times;
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <DialogFooter>
@@ -256,46 +414,16 @@ function Dashboard() {
                         >
                           Cancel
                         </Button>
-                        <Button type="submit" disabled={isCreating}>
-                          {isCreating ? "Creating..." : "Next"}
+                        <Button type="submit" disabled={isCreating || !newMeetingTitle.trim()}>
+                          {isCreating ? "Creating..." : "Create Meeting"}
                         </Button>
                       </DialogFooter>
                     </form>
                   </>
-                )}
-
-                {createStep === "documents" && createdMeeting && (
+                ) : (
                   <>
                     <DialogHeader>
-                      <DialogTitle>Upload Documents (Optional)</DialogTitle>
-                      <DialogDescription>
-                        Step 2 of 2 — Upload documents for Arni to reference during the meeting.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4">
-                      <DocumentUpload
-                        meetingId={createdMeeting.id}
-                        token={token || ""}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button
-                        variant="outline"
-                        onClick={() => setCreateStep("done")}
-                      >
-                        Skip
-                      </Button>
-                      <Button onClick={() => setCreateStep("done")}>
-                        Done
-                      </Button>
-                    </DialogFooter>
-                  </>
-                )}
-
-                {createStep === "done" && createdMeeting && (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle>Meeting Ready!</DialogTitle>
+                      <DialogTitle>Meeting Created</DialogTitle>
                       <DialogDescription>
                         Share this link with participants to join.
                       </DialogDescription>
@@ -322,16 +450,33 @@ function Dashboard() {
                           </Button>
                         </div>
                       </div>
+                      {inviteEmails.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Invites sent to {inviteEmails.join(", ")}
+                        </p>
+                      )}
+                      {selectedFiles.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {selectedFiles.length} document{selectedFiles.length !== 1 ? "s" : ""} uploading
+                        </p>
+                      )}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="flex gap-2 sm:gap-2">
                       <Button
-                        onClick={() => {
-                          setCreatedMeeting(null);
-                          setCreateStep("title");
-                          setIsCreateOpen(false);
-                        }}
+                        variant="outline"
+                        onClick={() => { resetCreateForm(); setIsCreateOpen(false); }}
                       >
                         Done
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          const code = createdMeeting.invite_link.split("/").pop();
+                          resetCreateForm();
+                          setIsCreateOpen(false);
+                          navigate(`/meeting/${code}`);
+                        }}
+                      >
+                        Join Now
                       </Button>
                     </DialogFooter>
                   </>
@@ -343,7 +488,7 @@ function Dashboard() {
           {/* Search bar */}
           <div className="mb-6">
             <Input
-              placeholder="Search meetings by title or summary…"
+              placeholder="Search meetings by title or summary..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="max-w-sm"

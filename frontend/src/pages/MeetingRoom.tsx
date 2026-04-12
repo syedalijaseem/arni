@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { DocumentUpload } from "@/components/DocumentUpload";
 import DailyIframe from "@daily-co/daily-js";
 import {
@@ -19,6 +20,7 @@ interface Meeting {
   id: string;
   title: string | null;
   state: string;
+  host_id: string;
   daily_room_name: string | null;
   daily_room_url: string | null;
 }
@@ -27,6 +29,13 @@ interface JoinResponse {
   meeting: Meeting;
   daily_token: string;
   daily_room_url: string;
+}
+
+interface MeetingParticipant {
+  id: string;
+  name: string;
+  email: string;
+  is_host: boolean;
 }
 
 interface Transcript {
@@ -82,7 +91,7 @@ function ArniStatusIndicator({ state }: { state: ArniState }) {
 
 function MeetingRoomContent() {
   const { inviteCode } = useParams<{ inviteCode: string }>();
-  const { token } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
   const daily = useDaily();
   const participantIds = useParticipantIds();
@@ -105,6 +114,13 @@ function MeetingRoomContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Participant management (host-only)
+  const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
+  const [meetingParticipants, setMeetingParticipants] = useState<MeetingParticipant[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+  const isHost = meeting?.host_id === user?.id;
+
   // Load existing documents for this meeting
   useEffect(() => {
     if (!meeting?.id || !token) return;
@@ -115,6 +131,62 @@ function MeetingRoomContent() {
       .then((docs) => setMeetingDocs(docs))
       .catch(() => {});
   }, [meeting?.id, token]);
+
+  // Load participants
+  function loadParticipants() {
+    if (!meeting?.id || !token) return;
+    fetch(`/api/meetings/${meeting.id}/participants`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.ok ? r.json() : [])
+      .then((p) => setMeetingParticipants(p))
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    loadParticipants();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meeting?.id, token]);
+
+  async function handleInvite() {
+    if (!meeting?.id || !inviteEmail.trim()) return;
+    setInviteStatus(null);
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}/invite`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: inviteEmail.trim().toLowerCase() }),
+      });
+      if (res.ok) {
+        setInviteStatus(`Invited ${inviteEmail.trim()}`);
+        setInviteEmail("");
+      } else {
+        const err = await res.json();
+        setInviteStatus(err.detail || "Failed to invite");
+      }
+    } catch {
+      setInviteStatus("Failed to invite");
+    }
+    setTimeout(() => setInviteStatus(null), 3000);
+  }
+
+  async function handleRemoveParticipant(userId: string) {
+    if (!meeting?.id) return;
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}/participants/${userId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        loadParticipants();
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     if (!meeting?.id) return;
@@ -456,6 +528,68 @@ function MeetingRoomContent() {
             </div>
           )}
         </Card>
+
+        {/* Participants Panel (host only) */}
+        {isHost && (
+          <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+            <button
+              className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+              onClick={() => { setIsParticipantsOpen(!isParticipantsOpen); if (!isParticipantsOpen) loadParticipants(); }}
+            >
+              <span>Participants ({meetingParticipants.length})</span>
+              <span className="text-xs text-gray-500">{isParticipantsOpen ? "Hide" : "Show"}</span>
+            </button>
+            {isParticipantsOpen && (
+              <div className="px-3 pb-3 space-y-3">
+                {/* Invite input */}
+                <div className="flex gap-2">
+                  <Input
+                    type="email"
+                    placeholder="Email to invite"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleInvite(); } }}
+                    className="h-8 text-xs bg-gray-900 border-gray-700"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs shrink-0"
+                    onClick={handleInvite}
+                    disabled={!inviteEmail.trim()}
+                  >
+                    Invite
+                  </Button>
+                </div>
+                {inviteStatus && (
+                  <p className="text-xs text-emerald-400">{inviteStatus}</p>
+                )}
+
+                {/* Participant list */}
+                <ul className="space-y-1">
+                  {meetingParticipants.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between text-xs text-gray-300 px-1 py-1">
+                      <div className="truncate">
+                        <span>{p.name}</span>
+                        {p.is_host && <span className="ml-1.5 text-yellow-400">(Host)</span>}
+                        <span className="block text-gray-500 truncate">{p.email}</span>
+                      </div>
+                      {!p.is_host && (
+                        <button
+                          className="ml-2 text-gray-500 hover:text-red-400 shrink-0"
+                          onClick={() => handleRemoveParticipant(p.id)}
+                          title="Remove participant"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Live Transcript Panel */}
         <Card className="bg-gray-950 border-gray-800 flex-1 flex flex-col min-h-0">

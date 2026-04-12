@@ -31,17 +31,21 @@ class TestInviteEndpoint:
         """invite_participant adds email to invite_list and returns invited=True."""
         from bson import ObjectId
         meet_oid = ObjectId()
+        host_id = ObjectId()
 
         with patch("app.routers.meetings.get_database") as mock_db_fn:
             mock_db = MagicMock()
             mock_db_fn.return_value = mock_db
+            mock_db.meetings.find_one = AsyncMock(return_value={
+                "_id": meet_oid, "host_id": host_id, "invite_list": [],
+            })
             mock_db.meetings.update_one = AsyncMock()
 
-            from app.routers.meetings import invite_participant
+            from app.routers.meetings import invite_participant, InviteRequest
             result = await invite_participant(
                 meeting_id=str(meet_oid),
-                email="alice@example.com",
-                meeting={"_id": meet_oid, "host_id": "user-1", "invite_list": []},
+                body=InviteRequest(email="alice@example.com"),
+                current_user={"id": str(host_id)},
             )
 
         assert result["invited"] is True
