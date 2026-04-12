@@ -22,10 +22,24 @@ class WakeWordResult:
     timestamp: float
 
 
+_EXTRA_ALIASES = [
+    "arty", "hey arty",
+    "yarni", "hey yarni",
+    "hey army",
+]
+
+
 class WakeWordDetector:
     def __init__(self):
         settings = get_settings()
         raw_phrases = [p.strip().lower() for p in settings.WAKE_PHRASES.split(",") if p.strip()]
+        # Merge extra aliases (dedup)
+        existing = set(raw_phrases)
+        for alias in _EXTRA_ALIASES:
+            a = alias.strip().lower()
+            if a and a not in existing:
+                raw_phrases.append(a)
+                existing.add(a)
         self.cooldown_seconds = settings.WAKE_COOLDOWN_SECONDS
 
         # Sort longest-first so "hey arni" matches before bare "arni"
