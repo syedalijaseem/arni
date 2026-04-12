@@ -113,8 +113,27 @@ async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
     from app.tts.elevenlabs_client import text_to_speech
     from app.tts.audio_injection import inject_audio
 
-    # Wait for bot to join the Daily.co room before injecting audio
-    await _asyncio.sleep(5)
+    # Wait for bot to fully join the Daily.co room before injecting audio.
+    # Bot start is async (create_task → join → connect), needs ~6-8s.
+    logger.info("Reconvene opening: waiting 8s for bot to join meeting=%s", meeting_id)
+    await _asyncio.sleep(8)
+
+    # Verify bot is actually in the room before proceeding
+    bot = bot_manager.active_bots.get(meeting_id)
+    if not bot:
+        logger.error("Reconvene opening: bot not in active_bots after 8s for meeting=%s — aborting TTS", meeting_id)
+        # Still broadcast text even if TTS won't work
+        try:
+            from app.routers.transcripts import manager as _mgr
+            await _mgr.broadcast(meeting_id, {
+                "type": "arni_message",
+                "text": "(Arni is reconnecting...)",
+                "is_memory": True,
+            })
+        except Exception:
+            pass
+        return
+    logger.info("Reconvene opening: bot confirmed active for meeting=%s, proceeding", meeting_id)
 
     context = meeting.get("context_summary", "")
     if not context:
@@ -139,28 +158,32 @@ async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
             }],
         )
         opening = message.content[0].text
+        logger.info("Reconvene opening generated for meeting=%s: %s", meeting_id, opening[:60])
     except Exception as exc:
-        logger.warning("Failed to generate reconvene opening for meeting=%s: %s", meeting_id, exc)
+        logger.error("Reconvene opening Claude call FAILED for meeting=%s: %s", meeting_id, exc)
         return
 
     # Speak via TTS
     try:
+        logger.info("Reconvene opening: calling TTS for meeting=%s", meeting_id)
         audio = await text_to_speech(opening)
         if audio:
-            await inject_audio(audio, meeting_id)
-            logger.info("TTS called for reconvene opening, meeting=%s", meeting_id)
+            logger.info("Reconvene opening: TTS produced %d bytes, injecting for meeting=%s", len(audio), meeting_id)
+            result = await inject_audio(audio, meeting_id)
+            logger.info("Reconvene opening: inject_audio returned %s for meeting=%s", result, meeting_id)
         else:
-            logger.warning("TTS returned no audio for reconvene opening, meeting=%s", meeting_id)
+            logger.error("Reconvene opening: TTS returned NO AUDIO for meeting=%s", meeting_id)
     except Exception as exc:
-        logger.warning("TTS failed for reconvene opening, meeting=%s: %s", meeting_id, exc)
+        logger.error("Reconvene opening: TTS pipeline FAILED for meeting=%s: %s", meeting_id, exc)
 
-    # Also broadcast as text to transcript
+    # Always broadcast as text to transcript regardless of TTS result
     try:
         await manager.broadcast(meeting_id, {
             "type": "arni_message",
             "text": opening,
             "is_memory": True,
         })
+        logger.info("Reconvene opening: text broadcast done for meeting=%s", meeting_id)
     except Exception as exc:
         logger.warning("Failed to broadcast reconvene opening: %s", exc)
 
@@ -508,22 +531,35 @@ async def join_meeting(
         )
         meeting["state"] = MeetingState.ACTIVE
         meeting["started_at"] = datetime.now(timezone.utc)
-        
-        # Spin up Arni bot
+
         import asyncio
-        asyncio.create_task(bot_manager.start_bot_for_meeting(
-            meeting_id=meeting_id,
-            room_url=meeting["daily_room_url"],
-            broadcast_callback=handle_bot_transcript,
-            wake_word_callback=handle_wake_word,
-        ))
+
+        room_url = meeting.get("daily_room_url")
+        is_reconvened = bool(meeting.get("parent_meeting_id"))
+        logger.info(
+            "Meeting ACTIVE: id=%s reconvened=%s room_url=%s parent=%s",
+            meeting_id, is_reconvened, room_url, meeting.get("parent_meeting_id"),
+        )
+
+        # Spin up Arni bot
+        if room_url:
+            asyncio.create_task(bot_manager.start_bot_for_meeting(
+                meeting_id=meeting_id,
+                room_url=room_url,
+                broadcast_callback=handle_bot_transcript,
+                wake_word_callback=handle_wake_word,
+            ))
+            logger.info("Bot start task created for meeting=%s", meeting_id)
+        else:
+            logger.error("No daily_room_url for meeting=%s — bot NOT started", meeting_id)
 
         # Start rolling summary loop and bot health monitor
         _start_summary_loop(meeting_id)
         _start_bot_health_monitor(meeting_id)
 
         # For reconvened meetings, speak a memory-based opening
-        if meeting.get("parent_meeting_id") and meeting.get("context_summary"):
+        # Uses a longer delay to ensure bot has fully joined the room
+        if is_reconvened and meeting.get("context_summary"):
             asyncio.create_task(_speak_reconvene_opening(meeting_id, meeting))
 
     # Generate Daily.co token
