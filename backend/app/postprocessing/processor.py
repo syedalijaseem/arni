@@ -230,18 +230,21 @@ async def run(meeting_id: str) -> None:
                     if isinstance(item, dict)
                 ]
 
-        # Store summary, title, decisions, action item IDs, timeline on Meeting
+        # Store summary, decisions, action item IDs, timeline on Meeting.
+        # Only set AI-generated title if user did not provide one at creation.
+        existing = await db.meetings.find_one({"_id": ObjectId(meeting_id)})
+        update_fields = {
+            "summary": summary,
+            "decisions": decisions,
+            "action_item_ids": action_item_ids,
+            "timeline": timeline,
+        }
+        if not existing or not existing.get("title"):
+            update_fields["title"] = title
+
         await db.meetings.update_one(
             {"_id": ObjectId(meeting_id)},
-            {
-                "$set": {
-                    "title": title,
-                    "summary": summary,
-                    "decisions": decisions,
-                    "action_item_ids": action_item_ids,
-                    "timeline": timeline,
-                }
-            },
+            {"$set": update_fields},
         )
 
         # Embed transcript chunks for post-meeting RAG Q&A (FR-045)
