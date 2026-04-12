@@ -81,10 +81,10 @@ class TestChunker:
         sig = inspect.signature(chunk)
         assert sig.parameters["chunk_size_tokens"].default == 300
 
-    def test_overlap_default_is_50(self):
-        """Default overlap_tokens must be 50."""
+    def test_overlap_default_is_100(self):
+        """Default overlap_tokens must be 100."""
         import inspect
         from app.documents.chunker import chunk
 
         sig = inspect.signature(chunk)
-        assert sig.parameters["overlap_tokens"].default == 50
+        assert sig.parameters["overlap_tokens"].default == 100

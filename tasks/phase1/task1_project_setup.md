@@ -52,3 +52,8 @@ Bootstrap the full development environment: monorepo layout, FastAPI backend, Mo
 ## Status
 
 complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

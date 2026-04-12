@@ -53,3 +53,8 @@ Implement a complete authentication system: email/password registration and logi
 ## Status
 
 complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

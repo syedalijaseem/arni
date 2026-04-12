@@ -70,3 +70,8 @@ Build the post-meeting Q&A system using Retrieval-Augmented Generation (RAG). Tr
 ## Status
 
 pending
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

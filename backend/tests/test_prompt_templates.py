@@ -56,7 +56,7 @@ class TestPromptTemplates:
         assert "{document_context}" in STANDARD_PROMPT
 
     def test_reasoning_prompt_has_all_placeholders(self):
-        """REASONING_PROMPT must contain all four template variables."""
+        """REASONING_PROMPT must contain all template variables."""
         from app.ai.prompt_templates import REASONING_PROMPT
         for var in ["{summary}", "{recent_turns}", "{document_context}", "{command}"]:
             assert var in REASONING_PROMPT

@@ -34,8 +34,8 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     return [item.embedding for item in response.data]
 
 
-def _chunk_text(text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]:
-    """Split text into overlapping token windows (200-400 tokens, 50-token overlap)."""
+def _chunk_text(text: str, chunk_size: int = 300, overlap: int = 100) -> list[str]:
+    """Split text into overlapping token windows (200-400 tokens, 100-token overlap)."""
     from app.documents.chunker import chunk as _chunk
     return _chunk(text, chunk_size_tokens=chunk_size, overlap_tokens=overlap)
 

@@ -3,7 +3,7 @@ Text Chunker — splits extracted text into overlapping token windows.
 
 Spec (SRS §4.4):
 - Default chunk size: 300 tokens
-- Default overlap: 50 tokens
+- Default overlap: 100 tokens (increased from 50 for better boundary context)
 - Min chunk size: 200 tokens (except for final chunk which may be smaller)
 - Max chunk size: 400 tokens
 - Tokenizer: cl100k_base (compatible with text-embedding-3-large)
@@ -24,7 +24,7 @@ def _get_encoder() -> tiktoken.Encoding:
 def chunk(
     text: str,
     chunk_size_tokens: int = 300,
-    overlap_tokens: int = 50,
+    overlap_tokens: int = 100,
 ) -> list[str]:
     """
     Split text into overlapping token windows.
@@ -33,7 +33,7 @@ def chunk(
         text: The full extracted document text.
         chunk_size_tokens: Target number of tokens per chunk (default 300).
         overlap_tokens: Number of tokens to repeat at the start of the next
-                        chunk for context continuity (default 50).
+                        chunk for context continuity (default 100).
 
     Returns:
         List of text chunk strings. Empty list if text is empty.

@@ -190,13 +190,22 @@ class TestRetriever:
         }
 
         mock_db = MagicMock()
-        # Simulate aggregate returning results for both collections
+        # Vector search (aggregate) returns results for both collections
         mock_db.transcript_chunks.aggregate = MagicMock(
             return_value=_async_iter([transcript_chunk])
         )
         mock_db.document_chunks.aggregate = MagicMock(
             return_value=_async_iter([document_chunk])
         )
+        # Keyword search (find) returns empty for simplicity
+        mock_db.transcript_chunks.find = MagicMock(
+            return_value=_mock_find_cursor([])
+        )
+        mock_db.document_chunks.find = MagicMock(
+            return_value=_mock_find_cursor([])
+        )
+        mock_db.transcript_chunks.name = "transcript_chunks"
+        mock_db.document_chunks.name = "document_chunks"
 
         with patch("app.rag.retriever.get_database", return_value=mock_db):
             with patch(
@@ -233,6 +242,14 @@ class TestRetriever:
         mock_db.document_chunks.aggregate = MagicMock(
             return_value=_async_iter([])
         )
+        mock_db.transcript_chunks.find = MagicMock(
+            return_value=_mock_find_cursor([])
+        )
+        mock_db.document_chunks.find = MagicMock(
+            return_value=_mock_find_cursor([])
+        )
+        mock_db.transcript_chunks.name = "transcript_chunks"
+        mock_db.document_chunks.name = "document_chunks"
 
         with patch("app.rag.retriever.get_database", return_value=mock_db):
             with patch(
@@ -289,6 +306,14 @@ class TestQARateLimit:
                     mock_db.document_chunks.aggregate = MagicMock(
                         return_value=_async_iter([])
                     )
+                    mock_db.transcript_chunks.find = MagicMock(
+                        return_value=_mock_find_cursor([])
+                    )
+                    mock_db.document_chunks.find = MagicMock(
+                        return_value=_mock_find_cursor([])
+                    )
+                    mock_db.transcript_chunks.name = "transcript_chunks"
+                    mock_db.document_chunks.name = "document_chunks"
                     with patch("anthropic.AsyncAnthropic") as mock_anthropic:
                         mock_client = MagicMock()
                         mock_client.messages.create = AsyncMock(
@@ -476,3 +501,13 @@ class _async_iter:
             return next(self._items)
         except StopIteration:
             raise StopAsyncIteration
+
+
+class _mock_find_cursor:
+    """Mock Motor find() cursor supporting .limit() chaining."""
+
+    def __init__(self, items):
+        self._items = items
+
+    def limit(self, n):
+        return _async_iter(self._items[:n])

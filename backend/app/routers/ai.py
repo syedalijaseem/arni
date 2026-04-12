@@ -41,6 +41,10 @@ COOLDOWN_MESSAGE = (
 )
 
 
+class AITranscribeResponse(BaseModel):
+    transcript: str
+
+
 class AIRespondRequest(BaseModel):
     meeting_id: str
     command: str
@@ -73,6 +77,34 @@ class AIFactCheckResponse(BaseModel):
     correction_text: str | None = None
     source_document: str | None = None
     source_excerpt: str | None = None
+
+
+@router.post("/transcribe", response_model=AITranscribeResponse)
+async def transcribe(
+    audio: UploadFile = File(...),
+):
+    """Transcribe an audio clip via Deepgram. Returns text only."""
+    from app.config import get_settings
+    from deepgram import DeepgramClient, PrerecordedOptions
+
+    settings = get_settings()
+    audio_bytes = await audio.read()
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio")
+
+    try:
+        dg = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        response = await dg.listen.asyncrest.v("1").transcribe_file(
+            {"buffer": audio_bytes, "mimetype": audio.content_type or "audio/webm"},
+            PrerecordedOptions(model="nova-2", smart_format=True, punctuate=True),
+        )
+        transcript = response.results.channels[0].alternatives[0].transcript
+    except Exception as exc:
+        logger.error("Transcription failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Transcription failed")
+
+    return AITranscribeResponse(transcript=transcript or "")
 
 
 @router.post("/push-to-talk")
@@ -486,8 +518,8 @@ async def qa(body: AIQARequest) -> AIQAResponse:
             detail="AI service not configured",
         )
 
-    # Retrieve relevant chunks
-    chunks = await retrieve(body.meeting_id, body.question, top_k=5)
+    # Retrieve relevant chunks via hybrid search
+    chunks = await retrieve(body.meeting_id, body.question, top_k=8)
 
     # Build context from retrieved chunks with source labels
     context_parts: list[str] = []
@@ -513,6 +545,8 @@ async def qa(body: AIQARequest) -> AIQAResponse:
         "You are a helpful meeting assistant. Answer the user's question based solely on "
         "the provided context from meeting transcripts and uploaded documents. "
         "When citing information, specify whether it came from the transcript or a document. "
+        "Be precise and specific: quote exact numbers, names, and facts directly from the source. "
+        "Do not paraphrase statistics. If the answer spans multiple chunks, synthesize coherently. "
         "If the context does not contain enough information to answer, say so clearly."
     )
     user_message = (

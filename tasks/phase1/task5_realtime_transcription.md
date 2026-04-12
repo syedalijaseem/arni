@@ -48,3 +48,8 @@ Integrate Deepgram Nova for per-participant streaming STT. Route each participan
 ## Status
 
 complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

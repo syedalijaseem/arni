@@ -295,20 +295,38 @@ function MeetingRoomContent() {
 
         setArniState("processing");
         try {
-          const form = new FormData();
-          form.append("meeting_id", meeting.id);
-          form.append("audio", blob, "recording.webm");
+          // Step 1: Transcribe the audio
+          const txForm = new FormData();
+          txForm.append("audio", blob, "recording.webm");
 
-          const res = await fetch("/api/ai/push-to-talk", {
+          const txRes = await fetch("/api/ai/transcribe", {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
-            body: form,
+            body: txForm,
+          });
+          if (!txRes.ok) throw new Error("Transcription failed");
+          const { transcript } = await txRes.json();
+          if (!transcript) { setArniState("listening"); return; }
+
+          // Step 2: Send transcript to AI respond endpoint
+          const res = await fetch("/api/ai/respond", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              meeting_id: meeting.id,
+              command: transcript,
+              speaker_id: "local-user",
+            }),
           });
 
-          if (!res.ok) throw new Error("Push-to-talk failed");
+          if (!res.ok) throw new Error("AI respond failed");
           setArniState("speaking");
-          setTimeout(() => setArniState("listening"), 3000);
+          setTimeout(() => setArniState("listening"), 5000);
         } catch (err) {
+          console.error("Push-to-talk pipeline failed:", err);
           setArniState("listening");
         }
       };

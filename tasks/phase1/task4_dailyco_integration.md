@@ -44,3 +44,8 @@ Integrate Daily.co to provision WebRTC meeting rooms programmatically, generate 
 ## Status
 
 complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

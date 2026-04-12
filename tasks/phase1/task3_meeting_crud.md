@@ -42,3 +42,8 @@ Implement full meeting lifecycle management: create rooms with shareable invite 
 ## Status
 
 complete
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->

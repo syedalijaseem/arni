@@ -72,3 +72,8 @@ Build the meeting history dashboard and the full post-meeting report page. The d
 ## Status
 
 pending
+
+---
+
+## Progress Notes
+<!-- loop-operator updates this as work proceeds -->
