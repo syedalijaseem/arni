@@ -405,10 +405,18 @@ function MeetingRoomContent() {
 
       // Step 3: Join Daily.co call
       if (daily) {
+        const hostUser = joinData.meeting.host_id === user?.id;
         await daily.join({
           url: joinData.daily_room_url,
           token: joinData.daily_token,
         });
+        // All participants start with camera off; non-host also mic off
+        await daily.setLocalVideo(false);
+        setIsCameraOff(true);
+        if (!hostUser) {
+          await daily.setLocalAudio(false);
+          setIsMuted(true);
+        }
       }
     } catch (err: unknown) {
       console.error("Failed to join meeting:", err);
@@ -920,7 +928,8 @@ export default function MeetingRoom() {
   useEffect(() => {
     const daily = DailyIframe.createCallObject({
       audioSource: true,
-      videoSource: true,
+      videoSource: false,
+      subscribeToTracksAutomatically: true,
     });
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCallObject(daily);
