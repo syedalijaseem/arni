@@ -194,6 +194,7 @@ async def create_meeting(
         "state": MeetingState.CREATED,
         "invite_code": invite_code,
         "invite_link": invite_link,
+        "invite_list": [],
         "daily_room_name": daily_room_name,
         "daily_room_url": daily_room_url,
         "started_at": None,
@@ -604,11 +605,15 @@ async def invite_participant(
     if str(meeting["host_id"]) != current_user["id"]:
         raise HTTPException(status_code=403, detail="Only the host can invite participants")
 
+    email = body.email.strip().lower()
+    current_list = meeting.get("invite_list", [])
+    logger.info("Invite: meeting=%s current_list=%s adding=%s", meeting_id, current_list, email)
+
     await db.meetings.update_one(
         {"_id": meeting["_id"]},
-        {"$addToSet": {"invite_list": body.email.lower()}},
+        {"$addToSet": {"invite_list": email}},
     )
-    return {"invited": True, "email": body.email.lower()}
+    return {"invited": True, "email": email}
 
 
 class ParticipantInfo(BaseModel):
