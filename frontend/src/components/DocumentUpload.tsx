@@ -18,9 +18,13 @@ const ACCEPTED_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "text/plain",
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 
-const ACCEPTED_EXTENSIONS = ".pdf,.docx,.txt";
+const ACCEPTED_EXTENSIONS = ".pdf,.docx,.txt,.csv,.xlsx,.xls";
 const MAX_SIZE_MB = 20;
 
 function formatBytes(bytes: number): string {
@@ -41,7 +45,7 @@ export function DocumentUpload({ meetingId, token, onDocumentReady }: DocumentUp
       setError(null);
 
       if (!ACCEPTED_TYPES.includes(file.type)) {
-        setError("Only PDF, DOCX, and TXT files are supported.");
+        setError("Supported: PDF, Word, Text, CSV, and Excel files.");
         return;
       }
 
@@ -133,7 +137,7 @@ export function DocumentUpload({ meetingId, token, onDocumentReady }: DocumentUp
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           {uploading
             ? "Uploading..."
-            : "Drag and drop a PDF, DOCX, or TXT file here, or click to browse"}
+            : "Drop PDF, Word, Text, CSV, or Excel files here, or click to browse"}
         </p>
         <p className="mt-1 text-xs text-neutral-400">Max {MAX_SIZE_MB} MB per file</p>
         <input

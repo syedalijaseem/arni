@@ -61,6 +61,10 @@ const ACCEPTED_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "text/plain",
+  "text/csv",
+  "application/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
@@ -353,13 +357,13 @@ function Dashboard() {
                             <input
                               ref={fileInputRef}
                               type="file"
-                              accept=".pdf,.docx,.txt"
+                              accept=".pdf,.docx,.txt,.csv,.xlsx,.xls"
                               multiple
                               className="hidden"
                               onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }}
                             />
                             <p className="text-muted-foreground">
-                              Drop PDF, DOCX, or TXT files here or click to browse
+                              Drop PDF, Word, Text, CSV, or Excel files here
                             </p>
                           </div>
                           {selectedFiles.length > 0 && (

@@ -2,8 +2,8 @@
 Text Chunker — splits extracted text into overlapping token windows.
 
 Table-aware: text between [TABLE] and [/TABLE] markers is never split
-mid-table. If a table exceeds the chunk size, it is split by row groups
-with the header row repeated in each chunk.
+mid-table. Tabular data (CSV/Excel output with "Row N:" lines) is
+chunked by row groups with headers repeated in each chunk.
 
 Spec (SRS §4.4):
 - Default chunk size: 300 tokens
@@ -18,6 +18,9 @@ _ENCODER = None
 
 # Matches [TABLE ...] ... [/TABLE] blocks including newlines
 _TABLE_RE = re.compile(r"(\[TABLE[^\]]*\].*?\[/TABLE\])", re.DOTALL)
+
+# Detects tabular text produced by _dataframe_to_rag_text
+_ROW_LINE_RE = re.compile(r"^Row \d+:", re.MULTILINE)
 
 
 def _get_encoder() -> tiktoken.Encoding:
@@ -121,6 +124,55 @@ def _chunk_table(table_text: str, chunk_size_tokens: int) -> list[str]:
     return chunks if chunks else [table_text]
 
 
+def _chunk_tabular(text: str, rows_per_chunk: int = 50) -> list[str]:
+    """Chunk tabular text (CSV/Excel output) by row groups.
+
+    The summary line becomes its own chunk. Data rows are grouped with
+    headers prepended to each group. Column summaries go in a final chunk.
+    """
+    lines = text.split("\n")
+
+    header_lines: list[str] = []
+    row_lines: list[str] = []
+    summary_lines: list[str] = []
+    in_summary = False
+
+    for line in lines:
+        if line.startswith("Column Summaries:"):
+            in_summary = True
+            summary_lines.append(line)
+        elif in_summary:
+            summary_lines.append(line)
+        elif _ROW_LINE_RE.match(line):
+            row_lines.append(line)
+        else:
+            header_lines.append(line)
+
+    chunks: list[str] = []
+
+    # Header / summary line as its own chunk
+    header_text = "\n".join(l for l in header_lines if l.strip())
+    if header_text:
+        chunks.append(header_text)
+
+    # Group data rows, prepend column context
+    for i in range(0, len(row_lines), rows_per_chunk):
+        batch = row_lines[i:i + rows_per_chunk]
+        chunk_text = header_text + "\n\n" + "\n".join(batch) if header_text else "\n".join(batch)
+        chunks.append(chunk_text)
+
+    # Column summaries as final chunk
+    if summary_lines:
+        chunks.append("\n".join(summary_lines))
+
+    return chunks if chunks else _chunk_plain(text, 300, 100)
+
+
+def _is_tabular(text: str) -> bool:
+    """Return True if text looks like CSV/Excel output from our extractor."""
+    return bool(_ROW_LINE_RE.search(text)) and "Data from " in text[:200]
+
+
 def chunk(
     text: str,
     chunk_size_tokens: int = 300,
@@ -130,6 +182,7 @@ def chunk(
     Split text into overlapping token windows, preserving table blocks.
 
     Table blocks (wrapped in [TABLE]...[/TABLE]) are never split mid-row.
+    Tabular data (CSV/Excel) is chunked by row groups with headers repeated.
     Plain text between tables is chunked with the standard overlap strategy.
 
     Args:
@@ -143,6 +196,10 @@ def chunk(
     """
     if not text or not text.strip():
         return []
+
+    # Tabular text (CSV/Excel) gets special row-group chunking
+    if _is_tabular(text):
+        return _chunk_tabular(text)
 
     # Split text into alternating plain / table segments
     segments = _TABLE_RE.split(text)

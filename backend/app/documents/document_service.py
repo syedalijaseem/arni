@@ -45,7 +45,7 @@ async def validate_upload(
     if content_type not in SUPPORTED_CONTENT_TYPES:
         raise ValueError(
             f"unsupported file type: {content_type!r}. "
-            "Only PDF, DOCX, and TXT files are accepted."
+            "Supported: PDF, DOCX, TXT, CSV, and Excel files."
         )
 
     if file_size_bytes > max_bytes:
