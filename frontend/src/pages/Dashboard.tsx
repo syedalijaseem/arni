@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/Spinner";
+import { ui } from "@/lib/ui";
 import {
   Dialog,
   DialogContent,
@@ -380,15 +382,13 @@ function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-      <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b bg-card">
-        <span className="text-lg font-bold tracking-tight">
-          <span className="text-primary">Arni</span>
-        </span>
+    <div className="min-h-screen flex flex-col bg-slate-950 text-white">
+      <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b border-slate-800">
+        <span className="text-lg font-bold tracking-tight text-blue-400">Arni</span>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <span className="text-sm text-muted-foreground">{user?.name}</span>
-          <Button variant="outline" size="sm" onClick={logout}>
+          <span className="text-sm text-slate-400">{user?.name}</span>
+          <Button variant="outline" size="sm" onClick={logout} className="border-slate-700 text-slate-300 hover:bg-slate-800">
             Sign out
           </Button>
         </div>
@@ -396,11 +396,11 @@ function Dashboard() {
 
       <main className="flex-1 px-6 md:px-12 py-8">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-2xl font-bold">Your Meetings</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Create and manage your meeting rooms
+              <h1 className="text-2xl font-bold text-white">Your Meetings</h1>
+              <p className="text-sm text-slate-400 mt-1">
+                Manage your meeting rooms and history
               </p>
             </div>
 
@@ -585,126 +585,131 @@ function Dashboard() {
             </Dialog>
           </div>
 
-          {/* Search bar + Tabs */}
+          {/* Tabs + Search */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-            <div className="flex rounded-lg border overflow-hidden">
+            <div className="flex gap-1 bg-slate-900/60 rounded-lg p-1">
               <button
-                className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "active" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"}`}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "active" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "text-slate-400 hover:text-white border border-transparent"}`}
                 onClick={() => setActiveTab("active")}
               >
-                My Meetings ({activeMeetings.length})
+                Active
+                <span className="ml-1.5 text-xs opacity-70">({activeMeetings.length})</span>
               </button>
               <button
-                className={`px-4 py-2 text-sm font-medium transition-colors ${activeTab === "history" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"}`}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "history" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "text-slate-400 hover:text-white border border-transparent"}`}
                 onClick={() => setActiveTab("history")}
               >
-                History ({historyMeetings.length})
+                History
+                <span className="ml-1.5 text-xs opacity-70">({historyMeetings.length})</span>
               </button>
             </div>
             <Input
-              placeholder="Search meetings by title or summary..."
+              placeholder="Search meetings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="max-w-sm"
+              className="max-w-xs bg-slate-900/60 border-slate-700 text-white placeholder:text-slate-500"
             />
           </div>
 
           {isLoading ? (
-            <div className="text-center py-12 text-muted-foreground">
-              Loading meetings...
+            <div className="flex justify-center py-20">
+              <Spinner size="lg" />
             </div>
           ) : displayedMeetings.length === 0 ? (
-            <Card className="p-12">
-              <div className="text-center space-y-2">
-                <h2 className="text-xl font-semibold">
-                  {activeTab === "active" ? "No active meetings" : "No past meetings"}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {activeTab === "active"
-                    ? "Create a meeting to get started."
-                    : "Ended meetings will appear here."}
-                </p>
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="text-5xl text-slate-700 mb-4">
+                {activeTab === "active" ? "\uD83D\uDCF9" : "\uD83D\uDCC2"}
               </div>
-            </Card>
+              <h2 className="text-xl font-semibold text-white mb-2">
+                {activeTab === "active" ? "No active meetings" : "No past meetings"}
+              </h2>
+              <p className="text-sm text-slate-400 mb-6">
+                {activeTab === "active"
+                  ? "Create your first meeting to get started."
+                  : "Ended meetings will appear here."}
+              </p>
+              {activeTab === "active" && (
+                <Button onClick={() => setIsCreateOpen(true)} className="bg-blue-600 hover:bg-blue-500">
+                  Create Meeting
+                </Button>
+              )}
+            </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {displayedMeetings.map((meeting) => (
-                <Card
+                <div
                   key={meeting.id}
-                  className="p-5 hover:shadow-md transition-shadow"
+                  className={`${ui.card} ${ui.cardHover} p-5 cursor-default`}
                 >
                   <div className="space-y-3">
-                    <div>
-                      <h3 className="font-semibold text-lg truncate">
-                        {meeting.title || `Meeting on ${new Date(meeting.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
-                      </h3>
-                      <p
-                        className={`text-sm font-medium capitalize ${getStateColor(meeting.state)}`}
-                      >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${ui.badge[meeting.state] || ui.badge.ended}`}>
                         {meeting.state}
-                      </p>
+                      </span>
+                      <span className="text-xs text-slate-500">{formatDate(meeting.created_at)}</span>
                     </div>
 
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <div>{formatDate(meeting.created_at)}</div>
-                      <div>Participants: {meeting.participant_count}</div>
-                      {meeting.duration_seconds && (
-                        <div>Duration: {formatDuration(meeting.duration_seconds)}</div>
-                      )}
+                    <h3 className="font-semibold text-lg text-white truncate">
+                      {meeting.title || `Meeting on ${new Date(meeting.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
+                    </h3>
+
+                    <div className="flex gap-4 text-xs text-slate-400">
+                      <span>
+                        <span className="text-slate-500">Participants</span> {meeting.participant_count}
+                      </span>
+                      {meeting.duration_seconds ? (
+                        <span>
+                          <span className="text-slate-500">Duration</span> {formatDuration(meeting.duration_seconds)}
+                        </span>
+                      ) : null}
                       {meeting.action_item_count > 0 && (
-                        <div>Action Items: {meeting.action_item_count}</div>
+                        <span>
+                          <span className="text-slate-500">Actions</span> {meeting.action_item_count}
+                        </span>
                       )}
                     </div>
 
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex items-center gap-2 pt-2">
                       {activeTab === "history" ? (
                         <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1"
+                          <button
+                            className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-700 transition-colors"
                             onClick={() => navigate(`/report/${meeting.id}`)}
                           >
                             View Report
-                          </Button>
+                          </button>
                           {meeting.host_id === user?.id && (
                             meeting.reconvened_by ? (
-                              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded self-center">
+                              <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded">
                                 Reconvened
                               </span>
                             ) : (
-                              <Button
-                                variant="secondary"
-                                size="sm"
+                              <button
+                                className="text-sm font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
                                 onClick={() => openReconveneDialog(meeting)}
                               >
                                 Reconvene
-                              </Button>
+                              </button>
                             )
                           )}
                         </>
                       ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() =>
-                            navigate(`/meeting/${meeting.invite_code}`)
-                          }
+                        <button
+                          className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+                          onClick={() => navigate(`/meeting/${meeting.invite_code}`)}
                         >
                           Join
-                        </Button>
+                        </button>
                       )}
-                      <Button
-                        variant="destructive"
-                        size="sm"
+                      <button
+                        className="text-xs text-red-400 hover:text-red-300 px-2 py-1 transition-colors"
                         onClick={() => handleDeleteMeeting(meeting.id)}
                       >
                         Delete
-                      </Button>
+                      </button>
                     </div>
                   </div>
-                </Card>
+                </div>
               ))}
             </div>
           )}

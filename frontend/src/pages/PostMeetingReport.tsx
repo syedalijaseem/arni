@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext'
 import ActionItemCard from '@/components/ActionItemCard'
 import MeetingTimeline from '@/components/MeetingTimeline'
 import QnAChat from '@/components/QnAChat'
+import { Spinner } from '@/components/Spinner'
 
 interface TimelineItem {
   timestamp: string
@@ -130,18 +131,18 @@ export default function PostMeetingReport() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground text-sm">Loading meeting report...</p>
+      <div className="flex items-center justify-center min-h-screen bg-slate-950">
+        <Spinner size="lg" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <p className="text-destructive text-sm">{error}</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 gap-4">
+        <p className="text-red-400 text-sm">{error}</p>
         <button
-          className="text-sm underline text-muted-foreground"
+          className="text-sm text-slate-400 hover:text-white underline transition-colors"
           onClick={() => navigate('/dashboard')}
         >
           Back to Dashboard
@@ -155,97 +156,134 @@ export default function PostMeetingReport() {
   const isProcessed = report.state === 'processed'
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10 space-y-10">
+    <div className="min-h-screen bg-slate-950 text-white">
       {/* Header */}
-      <div className="space-y-1">
-        <button
-          className="text-xs text-muted-foreground underline mb-2 block"
-          onClick={() => navigate('/dashboard')}
-        >
-          Back to Dashboard
-        </button>
-        <h1 className="text-2xl font-semibold text-foreground">
-          {report.title ? `${report.title} — Summary` : 'Meeting Summary'}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Duration: {formatDuration(report.duration_seconds)}
-          {report.ended_at && (
-            <span className="ml-4">
-              Ended: {new Date(report.ended_at).toLocaleString()}
-            </span>
-          )}
-        </p>
+      <div className="border-b border-slate-800 px-6 py-4">
+        <div className="max-w-6xl mx-auto">
+          <button
+            className="text-xs text-slate-500 hover:text-slate-300 mb-3 block transition-colors"
+            onClick={() => navigate('/dashboard')}
+          >
+            &larr; Back to Dashboard
+          </button>
+          <h1 className="text-2xl font-bold text-white">
+            {report.title ? `${report.title} — Summary` : 'Meeting Summary'}
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Duration: {formatDuration(report.duration_seconds)}
+            {report.ended_at && (
+              <span className="ml-4">
+                Ended: {new Date(report.ended_at).toLocaleString()}
+              </span>
+            )}
+          </p>
+        </div>
       </div>
 
-      {/* Processing notice */}
-      {!isProcessed && (
-        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          Your meeting report is being generated. Refresh this page in a moment to see the full results.
-        </div>
-      )}
-
-      {/* Summary */}
-      {report.summary && (
-        <section className="space-y-2">
-          <h2 className="text-base font-medium text-foreground">Summary</h2>
-          <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
-            {report.summary}
-          </p>
-        </section>
-      )}
-
-      {/* Decisions */}
-      {report.decisions && report.decisions.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-base font-medium text-foreground">Decisions</h2>
-          <ul className="space-y-1">
-            {report.decisions.map((decision, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-foreground">
-                <span className="mt-1 shrink-0 size-1.5 rounded-full bg-primary" />
-                {decision}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Action Items */}
-      <section className="space-y-3">
-        <h2 className="text-base font-medium text-foreground">
-          Action Items
-          {actionItems.length > 0 && (
-            <span className="ml-2 text-xs text-muted-foreground font-normal">
-              ({actionItems.length})
-            </span>
-          )}
-        </h2>
-        {actionItems.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No action items recorded.</p>
-        ) : (
-          <div className="space-y-3">
-            {actionItems.map((item) => (
-              <ActionItemCard key={item.id} item={item} onSave={handleSaveActionItem} />
-            ))}
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Processing notice */}
+        {!isProcessed && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 mb-8">
+            Your meeting report is being generated. Refresh this page in a moment to see the full results.
           </div>
         )}
-      </section>
 
-      {/* Meeting Timeline */}
-      <section className="space-y-3">
-        <h2 className="text-base font-medium text-foreground">Meeting Timeline</h2>
-        <MeetingTimeline timeline={report.timeline ?? []} />
-      </section>
+        {/* Two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left column — 2/3 */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Stats row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
+                <div className="text-2xl font-bold text-white">{formatDuration(report.duration_seconds)}</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Duration</div>
+              </div>
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
+                <div className="text-2xl font-bold text-white">{report.decisions?.length || 0}</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Decisions</div>
+              </div>
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
+                <div className="text-2xl font-bold text-white">{actionItems.length}</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Action Items</div>
+              </div>
+              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
+                <div className="text-2xl font-bold text-white">{report.timeline?.length || 0}</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Topics</div>
+              </div>
+            </div>
 
-      {/* Q&A Chat — only available after processing */}
-      {isProcessed && (
-        <section className="space-y-3">
-          <h2 className="text-base font-medium text-foreground">Ask About This Meeting</h2>
-          <p className="text-xs text-muted-foreground">
-            Ask questions about what was discussed. Up to 20 questions per meeting.
-          </p>
-          <QnAChat meetingId={meetingId!} token={token!} />
-        </section>
-      )}
+            {/* Summary */}
+            {report.summary && (
+              <section className="border-l-4 border-blue-500 pl-5">
+                <h2 className="text-lg font-semibold text-white mb-2">Meeting Summary</h2>
+                <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
+                  {report.summary}
+                </p>
+              </section>
+            )}
+
+            {/* Decisions */}
+            {report.decisions && report.decisions.length > 0 && (
+              <section className="space-y-3">
+                <h2 className="text-lg font-semibold text-white">Decisions</h2>
+                <ul className="space-y-2">
+                  {report.decisions.map((decision, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                      <span className="mt-1.5 shrink-0 size-2 rounded-full bg-blue-500" />
+                      {decision}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Action Items */}
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold text-white">
+                Action Items
+                {actionItems.length > 0 && (
+                  <span className="ml-2 text-xs text-slate-400 font-normal">
+                    ({actionItems.length})
+                  </span>
+                )}
+              </h2>
+              {actionItems.length === 0 ? (
+                <p className="text-sm text-slate-500">No action items recorded.</p>
+              ) : (
+                <div className="space-y-3">
+                  {actionItems.map((item) => (
+                    <ActionItemCard key={item.id} item={item} onSave={handleSaveActionItem} />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Meeting Timeline */}
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold text-white">Meeting Timeline</h2>
+              <MeetingTimeline timeline={report.timeline ?? []} />
+            </section>
+          </div>
+
+          {/* Right column — 1/3, sticky chat */}
+          {isProcessed && (
+            <div className="lg:col-span-1">
+              <div className="lg:sticky lg:top-4">
+                <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-700/60">
+                    <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      Ask Arni
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">About this meeting</p>
+                  </div>
+                  <QnAChat meetingId={meetingId!} token={token!} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
