@@ -352,21 +352,6 @@ function Dashboard() {
     });
   }
 
-  function getStateColor(state: string) {
-    switch (state) {
-      case "created":
-        return "text-blue-500";
-      case "active":
-        return "text-green-500";
-      case "ended":
-        return "text-yellow-500";
-      case "processed":
-        return "text-gray-500";
-      default:
-        return "text-gray-400";
-    }
-  }
-
   const activeMeetings = meetings.filter(
     (m) => m.state === "created" || m.state === "active",
   );
@@ -382,13 +367,13 @@ function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-white">
-      <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b border-slate-800">
-        <span className="text-lg font-bold tracking-tight text-blue-400">Arni</span>
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b border-border">
+        <span className="text-lg font-bold tracking-tight text-primary">Arni</span>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <span className="text-sm text-slate-400">{user?.name}</span>
-          <Button variant="outline" size="sm" onClick={logout} className="border-slate-700 text-slate-300 hover:bg-slate-800">
+          <span className="text-sm text-muted-foreground">{user?.name}</span>
+          <Button variant="outline" size="sm" onClick={logout}>
             Sign out
           </Button>
         </div>
@@ -398,8 +383,8 @@ function Dashboard() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-white">Your Meetings</h1>
-              <p className="text-sm text-slate-400 mt-1">
+              <h1 className="text-2xl font-bold text-foreground">Your Meetings</h1>
+              <p className="text-sm text-muted-foreground mt-1">
                 Manage your meeting rooms and history
               </p>
             </div>
@@ -587,16 +572,16 @@ function Dashboard() {
 
           {/* Tabs + Search */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-            <div className="flex gap-1 bg-slate-900/60 rounded-lg p-1">
+            <div className="flex gap-1 bg-muted/60 rounded-lg p-1">
               <button
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "active" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "text-slate-400 hover:text-white border border-transparent"}`}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "active" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground border border-transparent"}`}
                 onClick={() => setActiveTab("active")}
               >
                 Active
                 <span className="ml-1.5 text-xs opacity-70">({activeMeetings.length})</span>
               </button>
               <button
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "history" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "text-slate-400 hover:text-white border border-transparent"}`}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${activeTab === "history" ? "bg-primary/20 text-primary border border-primary/30" : "text-muted-foreground hover:text-foreground border border-transparent"}`}
                 onClick={() => setActiveTab("history")}
               >
                 History
@@ -607,7 +592,7 @@ function Dashboard() {
               placeholder="Search meetings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="max-w-xs bg-slate-900/60 border-slate-700 text-white placeholder:text-slate-500"
+              className="max-w-xs"
             />
           </div>
 
@@ -617,19 +602,19 @@ function Dashboard() {
             </div>
           ) : displayedMeetings.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="text-5xl text-slate-700 mb-4">
+              <div className="text-5xl text-muted-foreground/40 mb-4">
                 {activeTab === "active" ? "\uD83D\uDCF9" : "\uD83D\uDCC2"}
               </div>
-              <h2 className="text-xl font-semibold text-white mb-2">
+              <h2 className="text-xl font-semibold text-foreground mb-2">
                 {activeTab === "active" ? "No active meetings" : "No past meetings"}
               </h2>
-              <p className="text-sm text-slate-400 mb-6">
+              <p className="text-sm text-muted-foreground mb-6">
                 {activeTab === "active"
                   ? "Create your first meeting to get started."
                   : "Ended meetings will appear here."}
               </p>
               {activeTab === "active" && (
-                <Button onClick={() => setIsCreateOpen(true)} className="bg-blue-600 hover:bg-blue-500">
+                <Button onClick={() => setIsCreateOpen(true)}>
                   Create Meeting
                 </Button>
               )}
@@ -646,25 +631,25 @@ function Dashboard() {
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${ui.badge[meeting.state] || ui.badge.ended}`}>
                         {meeting.state}
                       </span>
-                      <span className="text-xs text-slate-500">{formatDate(meeting.created_at)}</span>
+                      <span className="text-xs text-muted-foreground">{formatDate(meeting.created_at)}</span>
                     </div>
 
-                    <h3 className="font-semibold text-lg text-white truncate">
+                    <h3 className="font-semibold text-lg text-foreground truncate">
                       {meeting.title || `Meeting on ${new Date(meeting.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`}
                     </h3>
 
-                    <div className="flex gap-4 text-xs text-slate-400">
+                    <div className="flex gap-4 text-xs text-muted-foreground">
                       <span>
-                        <span className="text-slate-500">Participants</span> {meeting.participant_count}
+                        <span className="text-muted-foreground/70">Participants</span> {meeting.participant_count}
                       </span>
                       {meeting.duration_seconds ? (
                         <span>
-                          <span className="text-slate-500">Duration</span> {formatDuration(meeting.duration_seconds)}
+                          <span className="text-muted-foreground/70">Duration</span> {formatDuration(meeting.duration_seconds)}
                         </span>
                       ) : null}
                       {meeting.action_item_count > 0 && (
                         <span>
-                          <span className="text-slate-500">Actions</span> {meeting.action_item_count}
+                          <span className="text-muted-foreground/70">Actions</span> {meeting.action_item_count}
                         </span>
                       )}
                     </div>
@@ -673,19 +658,19 @@ function Dashboard() {
                       {activeTab === "history" ? (
                         <>
                           <button
-                            className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-700 transition-colors"
+                            className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-accent transition-colors"
                             onClick={() => navigate(`/report/${meeting.id}`)}
                           >
                             View Report
                           </button>
                           {meeting.host_id === user?.id && (
                             meeting.reconvened_by ? (
-                              <span className="text-xs text-slate-500 px-2 py-1 bg-slate-800 rounded">
+                              <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded">
                                 Reconvened
                               </span>
                             ) : (
                               <button
-                                className="text-sm font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+                                className="text-sm font-medium px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                                 onClick={() => openReconveneDialog(meeting)}
                               >
                                 Reconvene
@@ -695,14 +680,14 @@ function Dashboard() {
                         </>
                       ) : (
                         <button
-                          className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+                          className="flex-1 text-sm font-medium px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                           onClick={() => navigate(`/meeting/${meeting.invite_code}`)}
                         >
                           Join
                         </button>
                       )}
                       <button
-                        className="text-xs text-red-400 hover:text-red-300 px-2 py-1 transition-colors"
+                        className="text-xs text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 px-2 py-1 transition-colors"
                         onClick={() => handleDeleteMeeting(meeting.id)}
                       >
                         Delete

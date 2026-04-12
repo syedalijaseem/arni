@@ -131,7 +131,7 @@ export default function PostMeetingReport() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-950">
+      <div className="flex items-center justify-center min-h-screen bg-background">
         <Spinner size="lg" />
       </div>
     )
@@ -139,10 +139,10 @@ export default function PostMeetingReport() {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 gap-4">
-        <p className="text-red-400 text-sm">{error}</p>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background gap-4">
+        <p className="text-destructive text-sm">{error}</p>
         <button
-          className="text-sm text-slate-400 hover:text-white underline transition-colors"
+          className="text-sm text-muted-foreground hover:text-foreground underline transition-colors"
           onClick={() => navigate('/dashboard')}
         >
           Back to Dashboard
@@ -156,20 +156,20 @@ export default function PostMeetingReport() {
   const isProcessed = report.state === 'processed'
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <div className="border-b border-slate-800 px-6 py-4">
+      <div className="border-b border-border px-6 py-4">
         <div className="max-w-6xl mx-auto">
           <button
-            className="text-xs text-slate-500 hover:text-slate-300 mb-3 block transition-colors"
+            className="text-xs text-muted-foreground/70 hover:text-muted-foreground mb-3 block transition-colors"
             onClick={() => navigate('/dashboard')}
           >
             &larr; Back to Dashboard
           </button>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-foreground">
             {report.title ? `${report.title} — Summary` : 'Meeting Summary'}
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Duration: {formatDuration(report.duration_seconds)}
             {report.ended_at && (
               <span className="ml-4">
@@ -183,7 +183,7 @@ export default function PostMeetingReport() {
       <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Processing notice */}
         {!isProcessed && (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 mb-8">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 mb-8">
             Your meeting report is being generated. Refresh this page in a moment to see the full results.
           </div>
         )}
@@ -194,9 +194,9 @@ export default function PostMeetingReport() {
           <div className="space-y-8">
             {/* Summary */}
             {report.summary && (
-              <section className="border-l-4 border-blue-500 pl-5">
-                <h2 className="text-lg font-semibold text-white mb-2">Meeting Summary</h2>
-                <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">
+              <section className="border-l-4 border-primary pl-5">
+                <h2 className="text-lg font-semibold text-foreground mb-2">Meeting Summary</h2>
+                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
                   {report.summary}
                 </p>
               </section>
@@ -205,11 +205,11 @@ export default function PostMeetingReport() {
             {/* Decisions */}
             {report.decisions && report.decisions.length > 0 && (
               <section className="space-y-3">
-                <h2 className="text-lg font-semibold text-white">Decisions</h2>
+                <h2 className="text-lg font-semibold text-foreground">Decisions</h2>
                 <ul className="space-y-2">
                   {report.decisions.map((decision, i) => (
-                    <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
-                      <span className="mt-1.5 shrink-0 size-2 rounded-full bg-blue-500" />
+                    <li key={i} className="flex items-start gap-3 text-sm text-foreground/80">
+                      <span className="mt-1.5 shrink-0 size-2 rounded-full bg-primary" />
                       {decision}
                     </li>
                   ))}
@@ -219,16 +219,16 @@ export default function PostMeetingReport() {
 
             {/* Action Items */}
             <section className="space-y-3">
-              <h2 className="text-lg font-semibold text-white">
+              <h2 className="text-lg font-semibold text-foreground">
                 Action Items
                 {actionItems.length > 0 && (
-                  <span className="ml-2 text-xs text-slate-400 font-normal">
+                  <span className="ml-2 text-xs text-muted-foreground font-normal">
                     ({actionItems.length})
                   </span>
                 )}
               </h2>
               {actionItems.length === 0 ? (
-                <p className="text-sm text-slate-500">No action items recorded.</p>
+                <p className="text-sm text-muted-foreground">No action items recorded.</p>
               ) : (
                 <div className="space-y-3">
                   {actionItems.map((item) => (
@@ -240,7 +240,7 @@ export default function PostMeetingReport() {
 
             {/* Meeting Timeline */}
             <section className="space-y-3">
-              <h2 className="text-lg font-semibold text-white">Meeting Timeline</h2>
+              <h2 className="text-lg font-semibold text-foreground">Meeting Timeline</h2>
               <MeetingTimeline timeline={report.timeline ?? []} />
             </section>
           </div>
@@ -249,13 +249,13 @@ export default function PostMeetingReport() {
           {isProcessed && (
             <div>
               <div className="lg:sticky lg:top-6" style={{ height: 'calc(100vh - 120px)' }}>
-                <div className="flex flex-col h-full bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-700/60 shrink-0">
-                    <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <div className="flex flex-col h-full bg-card/60 border border-border/60 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-border/60 shrink-0">
+                    <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary" />
                       Ask Arni
                     </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">About this meeting</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">About this meeting</p>
                   </div>
                   <div className="flex-1 min-h-0">
                     <QnAChat meetingId={meetingId!} token={token!} />

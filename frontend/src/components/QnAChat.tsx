@@ -106,7 +106,7 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
       {/* Message list — scrolls internally */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {messages.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center pt-12">
+          <p className="text-sm text-muted-foreground text-center pt-12">
             Ask a question about this meeting.
           </p>
         ) : (
@@ -118,21 +118,21 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
               <div
                 className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-700/80 text-slate-200'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground'
                 }`}
                 {...(msg.role === 'assistant'
                   ? { dangerouslySetInnerHTML: { __html: renderMarkdown(msg.content) } }
                   : { children: msg.content })}
               />
               {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                <details className="text-xs text-slate-500 max-w-[85%]">
-                  <summary className="cursor-pointer select-none hover:text-slate-300 transition-colors">
+                <details className="text-xs text-muted-foreground max-w-[85%]">
+                  <summary className="cursor-pointer select-none hover:text-foreground transition-colors">
                     {msg.sources.length} source{msg.sources.length > 1 ? 's' : ''}
                   </summary>
-                  <ul className="mt-1 space-y-1 pl-2 border-l border-slate-700">
+                  <ul className="mt-1 space-y-1 pl-2 border-l border-border">
                     {msg.sources.map((src) => (
-                      <li key={src.chunk_index} className="line-clamp-2 text-slate-500">
+                      <li key={src.chunk_index} className="line-clamp-2 text-muted-foreground">
                         {src.text}
                       </li>
                     ))}
@@ -144,7 +144,7 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
         )}
         {isSending && (
           <div className="flex items-start">
-            <div className="bg-slate-700/80 rounded-xl px-4 py-3">
+            <div className="bg-muted rounded-xl px-4 py-3">
               <Spinner size="sm" />
             </div>
           </div>
@@ -155,19 +155,19 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
       {/* Input — always at bottom */}
       <form
         onSubmit={handleSubmit}
-        className="flex gap-2 p-3 border-t border-slate-700/60 bg-slate-900/60 shrink-0"
+        className="flex gap-2 p-3 border-t border-border/60 bg-muted/60 shrink-0"
       >
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={rateLimited ? 'Question limit reached' : 'Ask about this meeting\u2026'}
           disabled={isSending || rateLimited}
-          className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
+          className="flex-1"
         />
         <button
           type="submit"
           disabled={isSending || rateLimited || !input.trim()}
-          className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           Ask
         </button>

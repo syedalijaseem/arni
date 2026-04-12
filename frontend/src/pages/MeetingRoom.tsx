@@ -78,7 +78,7 @@ const AI_STATE_COLOR: Record<ArniState, string> = {
 
 function ArniStatusIndicator({ state }: { state: ArniState }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-900/80 border border-gray-700 text-xs">
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-card/80 border border-border text-xs">
       <span
         className={[
           "inline-block w-2 h-2 rounded-full animate-pulse",
@@ -565,9 +565,9 @@ function MeetingRoomContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-black overflow-hidden">
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Header */}
-      <header className="bg-card border-b px-6 py-3 flex items-center justify-between">
+      <header className="bg-card border-b border-border px-6 py-3 flex items-center justify-between">
         <div>
           <h1 className="font-semibold">
             {meeting?.title || "Untitled Meeting"}
@@ -651,7 +651,7 @@ function MeetingRoomContent() {
                       participantId={participantId}
                     />
                   ))}
-                  <Card className="relative aspect-video bg-slate-900 overflow-hidden">
+                  <Card className="relative aspect-video bg-slate-900 dark:bg-slate-900 overflow-hidden">
                     <ArniVisualizer state={arniState === "listening" ? "listening" : arniState} />
                     <div className="absolute bottom-2 left-2 bg-black/70 px-3 py-1 rounded text-sm text-white">
                       Arni
@@ -668,19 +668,19 @@ function MeetingRoomContent() {
 
         {/* Rolling Summary Panel */}
         {summaryText && (
-          <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+          <Card className="bg-card border-border flex-shrink-0">
             <button
-              className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+              className="w-full p-3 text-left text-sm font-semibold text-foreground flex items-center justify-between hover:bg-muted/50 transition-colors"
               onClick={() => setIsSummaryOpen(!isSummaryOpen)}
             >
               <span>Meeting Summary</span>
-              <span className="text-xs text-gray-500">{isSummaryOpen ? "▲" : "▼"}</span>
+              <span className="text-xs text-muted-foreground">{isSummaryOpen ? "▲" : "▼"}</span>
             </button>
             {isSummaryOpen && (
               <div className="px-3 pb-3">
-                <p className="text-sm text-gray-300 whitespace-pre-wrap">{summaryText}</p>
+                <p className="text-sm text-foreground/80 whitespace-pre-wrap">{summaryText}</p>
                 {summaryTime && (
-                  <p className="text-xs text-gray-600 mt-2">
+                  <p className="text-xs text-muted-foreground/60 mt-2">
                     Last updated {new Date(summaryTime).toLocaleTimeString()}
                   </p>
                 )}
@@ -690,13 +690,13 @@ function MeetingRoomContent() {
         )}
 
         {/* Document Panel */}
-        <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+        <Card className="bg-card border-border flex-shrink-0">
           <button
-            className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+            className="w-full p-3 text-left text-sm font-semibold text-foreground flex items-center justify-between hover:bg-muted/50 transition-colors"
             onClick={() => setIsDocsOpen(!isDocsOpen)}
           >
             <span>Documents ({meetingDocs.length})</span>
-            <span className="text-xs text-gray-500">{isDocsOpen ? "Hide" : "Show"}</span>
+            <span className="text-xs text-muted-foreground">{isDocsOpen ? "Hide" : "Show"}</span>
           </button>
           {isDocsOpen && (
             <div className="px-3 pb-3">
@@ -708,9 +708,9 @@ function MeetingRoomContent() {
               {meetingDocs.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {meetingDocs.map((doc) => (
-                    <li key={doc.id} className="flex items-center justify-between text-xs text-gray-400 px-1">
+                    <li key={doc.id} className="flex items-center justify-between text-xs text-muted-foreground px-1">
                       <span className="truncate">{doc.filename}</span>
-                      <span className={doc.status === "ready" ? "text-green-400" : "text-yellow-400"}>
+                      <span className={doc.status === "ready" ? "text-green-600 dark:text-green-400" : "text-yellow-600 dark:text-yellow-400"}>
                         {doc.status}
                       </span>
                     </li>
@@ -723,13 +723,13 @@ function MeetingRoomContent() {
 
         {/* Participants Panel (host only) */}
         {isHost && (
-          <Card className="bg-gray-950 border-gray-800 flex-shrink-0">
+          <Card className="bg-card border-border flex-shrink-0">
             <button
-              className="w-full p-3 text-left text-sm font-semibold text-gray-200 flex items-center justify-between hover:bg-gray-900 transition-colors"
+              className="w-full p-3 text-left text-sm font-semibold text-foreground flex items-center justify-between hover:bg-muted/50 transition-colors"
               onClick={() => { setIsParticipantsOpen(!isParticipantsOpen); if (!isParticipantsOpen) loadParticipants(); }}
             >
               <span>Participants ({meetingParticipants.length})</span>
-              <span className="text-xs text-gray-500">{isParticipantsOpen ? "Hide" : "Show"}</span>
+              <span className="text-xs text-muted-foreground">{isParticipantsOpen ? "Hide" : "Show"}</span>
             </button>
             {isParticipantsOpen && (
               <div className="px-3 pb-3 space-y-3">
@@ -741,7 +741,7 @@ function MeetingRoomContent() {
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleInvite(); } }}
-                    className="h-8 text-xs bg-gray-900 border-gray-700"
+                    className="h-8 text-xs"
                   />
                   <Button
                     size="sm"
@@ -754,21 +754,21 @@ function MeetingRoomContent() {
                   </Button>
                 </div>
                 {inviteStatus && (
-                  <p className="text-xs text-emerald-400">{inviteStatus}</p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">{inviteStatus}</p>
                 )}
 
                 {/* Participant list */}
                 <ul className="space-y-1">
                   {meetingParticipants.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between text-xs text-gray-300 px-1 py-1">
+                    <li key={p.id} className="flex items-center justify-between text-xs text-foreground/80 px-1 py-1">
                       <div className="truncate">
                         <span>{p.name}</span>
-                        {p.is_host && <span className="ml-1.5 text-yellow-400">(Host)</span>}
-                        <span className="block text-gray-500 truncate">{p.email}</span>
+                        {p.is_host && <span className="ml-1.5 text-yellow-600 dark:text-yellow-400">(Host)</span>}
+                        <span className="block text-muted-foreground truncate">{p.email}</span>
                       </div>
                       {!p.is_host && (
                         <button
-                          className="ml-2 text-gray-500 hover:text-red-400 shrink-0"
+                          className="ml-2 text-muted-foreground hover:text-red-500 shrink-0"
                           onClick={() => handleRemoveParticipant(p.id)}
                           title="Remove participant"
                         >
@@ -784,13 +784,13 @@ function MeetingRoomContent() {
         )}
 
         {/* Live Transcript Panel */}
-        <Card className="bg-gray-950 border-gray-800 flex-1 flex flex-col min-h-0">
-          <div className="p-3 border-b border-gray-800 font-semibold text-sm text-gray-200 shadow-sm flex items-center justify-between">
+        <Card className="bg-card border-border flex-1 flex flex-col min-h-0">
+          <div className="p-3 border-b border-border font-semibold text-sm text-foreground shadow-sm flex items-center justify-between">
             <span>Live Transcript</span>
             <div className="flex items-center gap-2">
               <ArniStatusIndicator state={arniState} />
               {wakeWordEvent && (
-                <span className="text-xs text-emerald-400 animate-pulse">● Triggered</span>
+                <span className="text-xs text-emerald-600 dark:text-emerald-400 animate-pulse">● Triggered</span>
               )}
             </div>
           </div>
@@ -798,12 +798,12 @@ function MeetingRoomContent() {
           {/* Wake word indicator */}
           {wakeWordEvent && (
             <div className="mx-3 mt-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 animate-in fade-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-400">
+              <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                 <span className="text-lg">🤖</span>
                 <span>Arni heard you!</span>
               </div>
-              <p className="text-xs text-gray-400 mt-1 pl-7">
-                <span className="text-gray-500">{wakeWordEvent.speaker_name}:</span>{" "}
+              <p className="text-xs text-muted-foreground mt-1 pl-7">
+                <span className="text-muted-foreground/70">{wakeWordEvent.speaker_name}:</span>{" "}
                 "{wakeWordEvent.command}"
               </p>
             </div>
@@ -814,18 +814,18 @@ function MeetingRoomContent() {
               const isArni = t.speaker_id === "arni" || t.speaker_name === "Arni";
               return (
                 <div key={i} className="text-sm">
-                  <span className={`font-semibold ${isArni ? "text-violet-400" : "text-blue-400"}`}>
+                  <span className={`font-semibold ${isArni ? "text-violet-600 dark:text-violet-400" : "text-primary"}`}>
                     {t.speaker_name || t.speaker_id}:{" "}
                   </span>
-                  <span className="text-gray-300">{t.text}</span>
+                  <span className="text-foreground/80">{t.text}</span>
                 </div>
               );
             })}
 
             {Object.entries(interimTranscripts).map(([speakerId, { text, speaker_name }]) => (
               <div key={`interim-${speakerId}`} className="text-sm italic opacity-70">
-                <span className="font-semibold text-blue-400">{speaker_name}: </span>
-                <span className="text-gray-300 animate-pulse">{text}</span>
+                <span className="font-semibold text-primary">{speaker_name}: </span>
+                <span className="text-foreground/80 animate-pulse">{text}</span>
               </div>
             ))}
             <div ref={transcriptEndRef} />
@@ -835,7 +835,7 @@ function MeetingRoomContent() {
       </main>
 
       {/* Controls */}
-      <footer className="bg-card border-t px-6 py-4">
+      <footer className="bg-card border-t border-border px-6 py-4">
         <div className="flex items-center justify-center gap-3">
           <Button
             variant={isMuted ? "destructive" : "secondary"}
@@ -866,8 +866,8 @@ function ParticipantTile({ participantId }: ParticipantTileProps) {
 
   if (!participant) {
     return (
-      <Card className="relative aspect-video bg-gray-900 overflow-hidden flex items-center justify-center">
-        <span className="text-sm text-gray-500 animate-pulse">Loading participant...</span>
+      <Card className="relative aspect-video bg-muted overflow-hidden flex items-center justify-center">
+        <span className="text-sm text-muted-foreground animate-pulse">Loading participant...</span>
       </Card>
     );
   }
@@ -881,7 +881,7 @@ function ParticipantTile({ participantId }: ParticipantTileProps) {
   const isLocal = participant.local;
 
   return (
-    <Card className="relative aspect-video bg-gray-900 overflow-hidden">
+    <Card className="relative aspect-video bg-muted overflow-hidden">
       {/* Video element */}
       {videoTrack?.state === "playable" ? (
         <DailyVideo
@@ -891,8 +891,8 @@ function ParticipantTile({ participantId }: ParticipantTileProps) {
           className="w-full h-full object-cover"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-gray-800">
-          <div className="text-4xl font-bold text-gray-600">
+        <div className="w-full h-full flex items-center justify-center bg-muted">
+          <div className="text-4xl font-bold text-muted-foreground">
             {participant.user_name?.[0]?.toUpperCase() || "?"}
           </div>
         </div>
