@@ -117,6 +117,8 @@ function MeetingRoomContent() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryTime, setSummaryTime] = useState<string | null>(null);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -126,6 +128,25 @@ function MeetingRoomContent() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const isHost = meeting?.host_id === user?.id;
+
+  // Meeting duration timer
+  useEffect(() => {
+    const timer = setInterval(() => setDuration((prev) => prev + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  function formatTimer(seconds: number) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  // Auto-scroll transcript to bottom on new messages
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcripts]);
 
   // Load existing documents for this meeting
   useEffect(() => {
@@ -508,16 +529,19 @@ function MeetingRoomContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-black">
+    <div className="h-screen flex flex-col bg-black overflow-hidden">
       {/* Header */}
       <header className="bg-card border-b px-6 py-3 flex items-center justify-between">
         <div>
           <h1 className="font-semibold">
             {meeting?.title || "Untitled Meeting"}
           </h1>
-          <p className="text-xs text-muted-foreground">
-            {participantIds.length} participant
-            {participantIds.length !== 1 ? "s" : ""}
+          <p className="text-xs text-muted-foreground flex items-center gap-2">
+            <span>
+              {participantIds.length} participant
+              {participantIds.length !== 1 ? "s" : ""}
+            </span>
+            <span className="font-mono opacity-70">{formatTimer(duration)}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -742,14 +766,17 @@ function MeetingRoomContent() {
           )}
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {transcripts.map((t, i) => (
-              <div key={i} className="text-sm">
-                <span className="font-semibold text-blue-400">
-                  {t.speaker_name || t.speaker_id}:{" "}
-                </span>
-                <span className="text-gray-300">{t.text}</span>
-              </div>
-            ))}
+            {transcripts.map((t, i) => {
+              const isArni = t.speaker_id === "arni" || t.speaker_name === "Arni";
+              return (
+                <div key={i} className="text-sm">
+                  <span className={`font-semibold ${isArni ? "text-violet-400" : "text-blue-400"}`}>
+                    {t.speaker_name || t.speaker_id}:{" "}
+                  </span>
+                  <span className="text-gray-300">{t.text}</span>
+                </div>
+              );
+            })}
 
             {Object.entries(interimTranscripts).map(([speakerId, { text, speaker_name }]) => (
               <div key={`interim-${speakerId}`} className="text-sm italic opacity-70">
@@ -757,6 +784,7 @@ function MeetingRoomContent() {
                 <span className="text-gray-300 animate-pulse">{text}</span>
               </div>
             ))}
+            <div ref={transcriptEndRef} />
           </div>
         </Card>
         </div>{/* end right sidebar */}
