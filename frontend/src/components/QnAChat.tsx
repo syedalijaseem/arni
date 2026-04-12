@@ -1,6 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/Spinner'
+
+/** Render basic markdown: **bold**, *italic*, bullet lists, line breaks */
+function renderMarkdown(text: string) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^[-•]\s+(.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
+    .replace(/(<li[^>]*>.*<\/li>\n?)+/g, (m) => `<ul class="space-y-1">${m}</ul>`)
+    .replace(/\n/g, '<br />')
+}
 
 interface Source {
   chunk_index: number
@@ -91,11 +102,11 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
   }
 
   return (
-    <div className="flex flex-col border border-border rounded-lg overflow-hidden bg-card">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[240px] max-h-[420px]">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[350px]">
         {messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center pt-8">
+          <p className="text-sm text-slate-500 text-center pt-12">
             Ask a question about this meeting.
           </p>
         ) : (
@@ -105,22 +116,23 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
               className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
             >
               <div
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
+                className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700/80 text-slate-200'
                 }`}
-              >
-                {msg.content}
-              </div>
+                {...(msg.role === 'assistant'
+                  ? { dangerouslySetInnerHTML: { __html: renderMarkdown(msg.content) } }
+                  : { children: msg.content })}
+              />
               {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                <details className="text-xs text-muted-foreground max-w-[80%]">
-                  <summary className="cursor-pointer select-none">
+                <details className="text-xs text-slate-500 max-w-[85%]">
+                  <summary className="cursor-pointer select-none hover:text-slate-300 transition-colors">
                     {msg.sources.length} source{msg.sources.length > 1 ? 's' : ''}
                   </summary>
-                  <ul className="mt-1 space-y-1 pl-2 border-l border-border">
+                  <ul className="mt-1 space-y-1 pl-2 border-l border-slate-700">
                     {msg.sources.map((src) => (
-                      <li key={src.chunk_index} className="line-clamp-2">
+                      <li key={src.chunk_index} className="line-clamp-2 text-slate-500">
                         {src.text}
                       </li>
                     ))}
@@ -130,24 +142,35 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
             </div>
           ))
         )}
+        {isSending && (
+          <div className="flex items-start">
+            <div className="bg-slate-700/80 rounded-xl px-4 py-3">
+              <Spinner size="sm" />
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
+      {/* Input — always at bottom */}
       <form
         onSubmit={handleSubmit}
-        className="flex gap-2 p-3 border-t border-border bg-background"
+        className="flex gap-2 p-3 border-t border-slate-700/60 bg-slate-900/60 shrink-0"
       >
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={rateLimited ? 'Question limit reached' : 'Ask about this meeting…'}
+          placeholder={rateLimited ? 'Question limit reached' : 'Ask about this meeting\u2026'}
           disabled={isSending || rateLimited}
-          className="flex-1"
+          className="flex-1 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
         />
-        <Button type="submit" disabled={isSending || rateLimited || !input.trim()}>
-          {isSending ? 'Sending…' : 'Ask'}
-        </Button>
+        <button
+          type="submit"
+          disabled={isSending || rateLimited || !input.trim()}
+          className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Ask
+        </button>
       </form>
     </div>
   )

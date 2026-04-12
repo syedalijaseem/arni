@@ -188,30 +188,10 @@ export default function PostMeetingReport() {
           </div>
         )}
 
-        {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left column — 2/3 */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Stats row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
-                <div className="text-2xl font-bold text-white">{formatDuration(report.duration_seconds)}</div>
-                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Duration</div>
-              </div>
-              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
-                <div className="text-2xl font-bold text-white">{report.decisions?.length || 0}</div>
-                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Decisions</div>
-              </div>
-              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
-                <div className="text-2xl font-bold text-white">{actionItems.length}</div>
-                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Action Items</div>
-              </div>
-              <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/40">
-                <div className="text-2xl font-bold text-white">{report.timeline?.length || 0}</div>
-                <div className="text-xs text-slate-400 uppercase tracking-wide mt-1">Topics</div>
-              </div>
-            </div>
-
+        {/* Two-column layout: 55% content / 45% chat */}
+        <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-8">
+          {/* Left column */}
+          <div className="space-y-8">
             {/* Summary */}
             {report.summary && (
               <section className="border-l-4 border-blue-500 pl-5">
@@ -265,12 +245,12 @@ export default function PostMeetingReport() {
             </section>
           </div>
 
-          {/* Right column — 1/3, sticky chat */}
+          {/* Right column — sticky chat */}
           {isProcessed && (
-            <div className="lg:col-span-1">
+            <div>
               <div className="lg:sticky lg:top-4">
-                <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-700/60">
+                <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl overflow-hidden flex flex-col" style={{ minHeight: 'min(calc(100vh - 180px), 700px)' }}>
+                  <div className="px-4 py-3 border-b border-slate-700/60 shrink-0">
                     <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-blue-500" />
                       Ask Arni
