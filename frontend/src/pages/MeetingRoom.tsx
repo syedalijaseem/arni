@@ -410,9 +410,7 @@ function MeetingRoomContent() {
           url: joinData.daily_room_url,
           token: joinData.daily_token,
         });
-        // Everyone starts with camera off, mic on
-        await daily.setLocalVideo(false);
-        setIsCameraOff(true);
+        // Everyone joins with mic and camera on
       }
     } catch (err: unknown) {
       console.error("Failed to join meeting:", err);
@@ -924,7 +922,7 @@ export default function MeetingRoom() {
   useEffect(() => {
     const daily = DailyIframe.createCallObject({
       audioSource: true,
-      videoSource: false,
+      videoSource: true,
       subscribeToTracksAutomatically: true,
     });
     // eslint-disable-next-line react-hooks/set-state-in-effect
