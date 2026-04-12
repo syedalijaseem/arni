@@ -28,6 +28,13 @@ CLAUDE_MODEL = "claude-sonnet-4-5"
 MAX_TOKENS_DEFAULT = 120
 MAX_TOKENS_WITH_DOCS = 120
 
+_DOC_LIST_TRIGGERS = [
+    "what documents", "which documents", "list documents",
+    "any documents", "files uploaded", "what files",
+    "documents uploaded", "uploaded documents",
+    "what is uploaded", "any files", "what's uploaded",
+]
+
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -78,6 +85,29 @@ async def ai_respond(
     settings = get_settings()
     if not settings.ANTHROPIC_API_KEY:
         return {"response_text": FALLBACK_MESSAGE}
+
+    # Fast-path: answer document listing queries directly from DB
+    cmd_lower = command.lower()
+    if any(trigger in cmd_lower for trigger in _DOC_LIST_TRIGGERS):
+        try:
+            from app.database import get_database
+            db = get_database()
+            docs = await db.documents.find(
+                {"meeting_id": meeting_id, "status": "ready"},
+            ).to_list(20)
+            if not docs:
+                response = "No documents have been uploaded to this meeting yet."
+            else:
+                names = [d.get("filename", "Unknown") for d in docs]
+                if len(names) == 1:
+                    response = f"There is one document uploaded: {names[0]}."
+                else:
+                    listed = ", ".join(names[:-1]) + f" and {names[-1]}"
+                    response = f"There are {len(names)} documents uploaded: {listed}."
+            logger.info("Doc listing query for meeting=%s: %s", meeting_id, response)
+            return {"response_text": response}
+        except Exception as exc:
+            logger.warning("Doc listing query failed: %s", exc)
 
     # Enrich with document context if caller didn't already provide it
     if not context.get("document_context") and command:

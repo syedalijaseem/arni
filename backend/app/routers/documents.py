@@ -135,6 +135,36 @@ async def list_meeting_documents(
     ]
 
 
+@router.get("/{meeting_id}/documents/debug")
+async def debug_meeting_documents(
+    meeting_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Debug: return documents with chunk counts and sample chunk text."""
+    db = get_database()
+    await _get_meeting_and_assert_participant(meeting_id, current_user, db)
+
+    docs = await db.documents.find({"meeting_id": meeting_id}).to_list(50)
+    result = []
+    for d in docs:
+        doc_id = str(d["_id"])
+        chunk_count = await db.document_chunks.count_documents({"document_id": doc_id})
+        chunk_by_meeting = await db.document_chunks.count_documents({"meeting_id": meeting_id, "document_id": doc_id})
+        sample = await db.document_chunks.find_one({"document_id": doc_id}, {"embedding": 0})
+        result.append({
+            "id": doc_id,
+            "filename": d.get("filename"),
+            "status": d.get("status"),
+            "chunk_count_in_doc": d.get("chunk_count", 0),
+            "chunk_count_actual": chunk_count,
+            "chunk_count_by_meeting": chunk_by_meeting,
+            "meeting_id_on_doc": d.get("meeting_id"),
+            "sample_chunk_meeting_id": sample.get("meeting_id") if sample else None,
+            "sample_chunk_text": (sample.get("text", "")[:150] + "...") if sample else None,
+        })
+    return {"meeting_id": meeting_id, "documents": result}
+
+
 @router.delete("/{meeting_id}/documents/{doc_id}", status_code=204)
 async def delete_meeting_document(
     meeting_id: str,

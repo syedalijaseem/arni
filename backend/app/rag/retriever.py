@@ -270,6 +270,21 @@ async def retrieve(
     """
     db = get_database()
 
+    # 0. Log available documents for this meeting (best-effort, never blocks retrieval)
+    try:
+        doc_count = await db.document_chunks.count_documents({"meeting_id": meeting_id})
+        ready_docs = await db.documents.find(
+            {"meeting_id": meeting_id, "status": "ready"},
+            {"filename": 1, "chunk_count": 1},
+        ).to_list(20)
+        logger.info(
+            "retrieve: meeting=%s has %d chunk(s) across %d doc(s): %s",
+            meeting_id, doc_count, len(ready_docs),
+            [d.get("filename") for d in ready_docs],
+        )
+    except Exception:
+        pass
+
     # 1. Generate query embedding
     query_embeddings = await embed_texts([query_text])
     query_vector = query_embeddings[0]
