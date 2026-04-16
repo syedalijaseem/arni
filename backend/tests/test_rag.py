@@ -292,8 +292,6 @@ class TestQARateLimit:
             "score": 0.9,
         }
 
-        mock_answer_response = MagicMock()
-        mock_answer_response.content = [MagicMock(text="Q4 earnings were $2M.")]
 
         with patch("app.routers.ai.get_database", return_value=mock_db):
             with patch("app.rag.retriever.get_database", return_value=mock_db):
@@ -314,12 +312,12 @@ class TestQARateLimit:
                     )
                     mock_db.transcript_chunks.name = "transcript_chunks"
                     mock_db.document_chunks.name = "document_chunks"
-                    with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                        mock_client = MagicMock()
-                        mock_client.messages.create = AsyncMock(
-                            return_value=mock_answer_response
-                        )
-                        mock_anthropic.return_value = mock_client
+                    with patch("app.ai.llm_client.is_configured", return_value=True):
+                        with patch(
+                            "app.ai.llm_client.chat",
+                            new_callable=AsyncMock,
+                            return_value="Q4 earnings were $2M.",
+                        ):
 
                         from httpx import AsyncClient, ASGITransport
                         app = _make_ai_app_with_auth(user_id)
@@ -437,26 +435,19 @@ class TestRAGIntegration:
             return_value=MagicMock(inserted_id=ObjectId())
         )
 
-        def make_response(text: str):
-            r = MagicMock()
-            r.content = [MagicMock(text=text)]
-            return r
 
         responses = [
-            make_response('{"title": "Q4 Planning", "summary": "Budget finalized."}'),
-            make_response("[]"),    # decisions
-            make_response("[]"),    # actions
-            make_response('[{"timestamp": "00:00", "topic": "Budget"}]'),  # timeline
+            '{"title": "Q4 Planning", "summary": "Budget finalized."}',
+            '[]',
+            '[]',
+            '[{"timestamp": "00:00", "topic": "Budget"}]',
         ]
         call_count = {"n": 0}
 
-        async def fake_create(**kwargs):
+        async def fake_llm_chat(**kwargs):
             n = call_count["n"]
             call_count["n"] += 1
-            return responses[n] if n < len(responses) else make_response("[]")
-
-        mock_anthropic_client = MagicMock()
-        mock_anthropic_client.messages.create = fake_create
+            return responses[n] if n < len(responses) else "[]"
 
         embed_called = {"called": False, "meeting_id": None}
 
@@ -470,7 +461,7 @@ class TestRAGIntegration:
                     "app.postprocessing.processor.publish_meeting_processed",
                     new_callable=AsyncMock,
                 ):
-                    with patch("anthropic.AsyncAnthropic", return_value=mock_anthropic_client):
+                    with patch("app.ai.llm_client.chat", side_effect=fake_llm_chat):
                         with patch(
                             "app.postprocessing.processor.embed_transcript",
                             side_effect=fake_embed_transcript,

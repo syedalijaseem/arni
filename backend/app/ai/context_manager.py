@@ -1,7 +1,7 @@
 """
 Context Manager for AI Response Generation.
 
-Builds the hybrid context payload for Claude: Arni's system persona,
+Builds the hybrid context payload for the LLM: Arni's system persona,
 the latest rolling summary, recent transcript turns, and relevant
 document chunks via RAG with reranking.
 """
@@ -9,7 +9,7 @@ document chunks via RAG with reranking.
 import logging
 from typing import Any
 
-import anthropic
+from app.ai.llm_client import chat, is_configured, LLM_FAST_MODEL
 
 from app.config import get_settings
 from app.database import get_database
@@ -22,7 +22,7 @@ ARNI_SYSTEM_PROMPT = (
     "No filler phrases. No introductions. Answer immediately."
 )
 
-RERANK_MODEL = "claude-haiku-4-5-20251001"
+
 
 
 async def build_context(
@@ -109,7 +109,7 @@ async def _rerank_chunks(
     query: str,
     chunks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Use Claude to rerank retrieved chunks by relevance to the query.
+    """Use the LLM to rerank retrieved chunks by relevance to the query.
 
     Sends the query and chunk texts to a fast model, asks it to rank
     them by relevance, and returns chunks in the reranked order.
@@ -118,8 +118,7 @@ async def _rerank_chunks(
     if len(chunks) <= 1:
         return chunks
 
-    settings = get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not is_configured():
         return chunks
 
     # Build numbered chunk list for the reranker
@@ -138,13 +137,15 @@ async def _rerank_chunks(
     )
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        msg = await client.messages.create(
-            model=RERANK_MODEL,
-            max_tokens=60,
+        raw_response = await chat(
             messages=[{"role": "user", "content": rerank_prompt}],
+            model=LLM_FAST_MODEL,
+            max_tokens=60,
         )
-        raw_response = msg.content[0].text.strip()
+        if not raw_response:
+            return chunks
+
+        raw_response = raw_response.strip()
 
         # Parse comma-separated indices
         indices = []
@@ -177,7 +178,7 @@ async def _retrieve_document_context(
 
     Pipeline:
     1. Hybrid retrieval (vector + keyword) via retriever
-    2. Claude reranking by relevance
+    2. LLM reranking by relevance
     3. Format with source attribution labels
 
     Returns:

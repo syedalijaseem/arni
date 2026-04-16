@@ -3,7 +3,10 @@ Audio injection — delivers TTS audio to meeting participants.
 
 Primary path: broadcast base64-encoded WAV over WebSocket so every
 connected browser client can play it directly with the Web Audio API.
-Fallback: also attempt Daily.co virtual mic injection if a bot is present.
+Secondary: also attempt Daily.co virtual mic injection if a bot is present.
+
+The frontend is responsible for deduplicating if both paths produce
+audible output (e.g. muting the WebSocket audio when Daily.co mic is active).
 """
 
 import asyncio
@@ -61,16 +64,17 @@ async def inject_audio(audio_bytes: bytes, meeting_id: str, bot=None) -> bool:
     except Exception as exc:
         logger.error("inject_audio: WebSocket broadcast FAILED for meeting=%s: %s", meeting_id, exc)
 
-    # ── Secondary: Daily.co virtual mic (best-effort) ─────────────────
-    if bot is None:
-        from app.bot.bot_manager import bot_manager
-        bot = bot_manager.active_bots.get(meeting_id)
-
-    if bot is not None:
-        try:
-            await bot.send_audio(audio_bytes)
-            logger.info("inject_audio: Daily.co mic injection OK for meeting=%s", meeting_id)
-        except Exception as exc:
-            logger.warning("inject_audio: Daily.co mic injection failed for meeting=%s: %s", meeting_id, exc)
+    # ── Secondary: Daily.co virtual mic (best-effort, disabled to
+    #    prevent double-audio until frontend dedup is implemented) ──────
+    # if bot is None:
+    #     from app.bot.bot_manager import bot_manager
+    #     bot = bot_manager.active_bots.get(meeting_id)
+    #
+    # if bot is not None:
+    #     try:
+    #         await bot.send_audio(audio_bytes)
+    #         logger.info("inject_audio: Daily.co mic injection OK for meeting=%s", meeting_id)
+    #     except Exception as exc:
+    #         logger.warning("inject_audio: Daily.co mic injection failed for meeting=%s: %s", meeting_id, exc)
 
     return ws_ok

@@ -26,6 +26,7 @@ from app.utils.daily import (
 from app.bot.bot_manager import bot_manager
 from app.routers.transcripts import handle_bot_transcript, handle_wake_word
 from app.lobby.lobby_manager import lobby_manager
+from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 
 router = APIRouter()
 settings = get_settings()
@@ -108,7 +109,7 @@ def _stop_bot_health_monitor(meeting_id: str) -> None:
 
 async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
     """Generate, speak via TTS, and broadcast a memory-based opening."""
-    import anthropic
+    from app.ai.llm_client import chat as llm_chat
     from app.routers.transcripts import manager
     from app.tts.elevenlabs_client import text_to_speech
     from app.tts.audio_injection import inject_audio
@@ -140,10 +141,7 @@ async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
         return
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=80,
+        opening = await llm_chat(
             messages=[{
                 "role": "user",
                 "content": (
@@ -156,11 +154,14 @@ async def _speak_reconvene_opening(meeting_id: str, meeting: dict) -> None:
                     'pick up from there."'
                 ),
             }],
+            max_tokens=80,
         )
-        opening = message.content[0].text
+        if not opening:
+            logger.error("Reconvene opening LLM call returned empty for meeting=%s", meeting_id)
+            return
         logger.info("Reconvene opening generated for meeting=%s: %s", meeting_id, opening[:60])
     except Exception as exc:
-        logger.error("Reconvene opening Claude call FAILED for meeting=%s: %s", meeting_id, exc)
+        logger.error("Reconvene opening LLM call FAILED for meeting=%s: %s", meeting_id, exc)
         return
 
     # Speak via TTS
@@ -1214,7 +1215,7 @@ async def ask_meeting(
         upsert=True,
     )
 
-    if not settings.ANTHROPIC_API_KEY:
+    if not llm_is_configured():
         raise HTTPException(status_code=503, detail="AI service not configured.")
 
     # Diagnostic: log documents available for this meeting at query time
@@ -1264,17 +1265,15 @@ async def ask_meeting(
     user_message = f"Context:\n{context_text}\n\nQuestion: {body.question}"
 
     try:
-        import anthropic as _anthropic
-        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
+        answer = await llm_chat(
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
+            max_tokens=1024,
         )
-        answer = message.content[0].text
+        if not answer:
+            answer = "Sorry, I was unable to generate an answer at this time."
     except Exception as exc:
-        logger.error("Meeting ask Claude call failed: %s", exc)
+        logger.error("Meeting ask LLM call failed: %s", exc)
         answer = "Sorry, I was unable to generate an answer at this time."
 
     sources = []

@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     WAKE_COOLDOWN_SECONDS: int = 5
     UTTERANCE_SILENCE_MS: int = 1000
 
-    # AI / Claude
-    ANTHROPIC_API_KEY: str = ""
+    # AI / DeepSeek (OpenAI-compatible)
+    DEEPSEEK_API_KEY: str = ""
     AI_CONTEXT_WINDOW: int = 20
     AI_MAX_RESPONSES: int = 30
 

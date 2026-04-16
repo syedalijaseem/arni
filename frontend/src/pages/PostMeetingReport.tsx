@@ -156,9 +156,9 @@ export default function PostMeetingReport() {
   const isProcessed = report.state === 'processed'
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="border-b border-border px-6 py-4">
+      <div className="border-b border-border px-6 py-4 shrink-0">
         <div className="max-w-6xl mx-auto">
           <button
             className="text-xs text-muted-foreground/70 hover:text-muted-foreground mb-3 block transition-colors"
@@ -180,18 +180,18 @@ export default function PostMeetingReport() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="flex-1 min-h-0 max-w-6xl mx-auto px-6 py-6 w-full">
         {/* Processing notice */}
         {!isProcessed && (
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 mb-8">
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300 mb-6 shrink-0">
             Your meeting report is being generated. Refresh this page in a moment to see the full results.
           </div>
         )}
 
         {/* Two-column layout: 55% content / 45% chat */}
-        <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-8">
-          {/* Left column */}
-          <div className="space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-8 h-full min-h-0">
+          {/* Left column — scrolls internally */}
+          <div className="overflow-y-auto space-y-8 pr-2">
             {/* Summary */}
             {report.summary && (
               <section className="border-l-4 border-primary pl-5">
@@ -239,27 +239,25 @@ export default function PostMeetingReport() {
             </section>
 
             {/* Meeting Timeline */}
-            <section className="space-y-3">
+            <section className="space-y-3 pb-4">
               <h2 className="text-lg font-semibold text-foreground">Meeting Timeline</h2>
               <MeetingTimeline timeline={report.timeline ?? []} />
             </section>
           </div>
 
-          {/* Right column — sticky chat */}
+          {/* Right column — chat fills remaining height */}
           {isProcessed && (
-            <div>
-              <div className="lg:sticky lg:top-6" style={{ height: 'calc(100vh - 120px)' }}>
-                <div className="flex flex-col h-full bg-card/60 border border-border/60 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-border/60 shrink-0">
-                    <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-primary" />
-                      Ask Arni
-                    </h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">About this meeting</p>
-                  </div>
-                  <div className="flex-1 min-h-0">
-                    <QnAChat meetingId={meetingId!} token={token!} />
-                  </div>
+            <div className="flex flex-col min-h-0">
+              <div className="flex flex-col flex-1 min-h-0 bg-card/60 border border-border/60 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-border/60 shrink-0">
+                  <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary" />
+                    Ask Arni
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">About this meeting</p>
+                </div>
+                <div className="flex-1 min-h-0">
+                  <QnAChat meetingId={meetingId!} token={token!} />
                 </div>
               </div>
             </div>

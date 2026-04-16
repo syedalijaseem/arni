@@ -23,18 +23,12 @@ class TestExtractDecisionsEndpoint:
     @pytest.mark.asyncio
     async def test_explicit_decision_extracted(self):
         """Explicit decision in transcript is returned."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='["We decided to use PostgreSQL for the database."]')]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value='["We decided to use PostgreSQL for the database."]',
+            ):
                 from app.routers.ai import router
                 from fastapi import FastAPI
 
@@ -57,18 +51,12 @@ class TestExtractDecisionsEndpoint:
     @pytest.mark.asyncio
     async def test_implied_decision_returns_empty(self):
         """No explicit decisions → empty list returned (FR-042)."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='[]')]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value="[]",
+            ):
                 from app.routers.ai import router
                 from fastapi import FastAPI
 
@@ -89,10 +77,7 @@ class TestExtractDecisionsEndpoint:
     @pytest.mark.asyncio
     async def test_no_api_key_returns_503(self):
         """Missing API key returns 503."""
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = ""
-
-        with patch("app.config.get_settings", return_value=mock_settings):
+        with patch("app.ai.llm_client.is_configured", return_value=False):
             from app.routers.ai import router
             from fastapi import FastAPI
 
@@ -118,20 +103,12 @@ class TestExtractActionsEndpoint:
     @pytest.mark.asyncio
     async def test_explicit_assignment_extracted(self):
         """Explicit assignment → action item returned (FR-043)."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text='[{"description": "Write the report", "assignee": "Bob", "deadline": "Friday"}]'
-        )]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value='[{"description": "Write the report", "assignee": "Bob", "deadline": "Friday"}]',
+            ):
                 from app.routers.ai import router
                 from fastapi import FastAPI
 
@@ -157,18 +134,12 @@ class TestExtractActionsEndpoint:
     @pytest.mark.asyncio
     async def test_vague_discussion_returns_empty(self):
         """No explicit commitment → empty action item list (FR-043)."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(text='[]')]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value="[]",
+            ):
                 from app.routers.ai import router
                 from fastapi import FastAPI
 

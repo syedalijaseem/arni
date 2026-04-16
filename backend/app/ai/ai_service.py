@@ -1,15 +1,13 @@
 """
-AI Service — Claude Sonnet streaming integration.
+AI Service — DeepSeek streaming integration via centralized LLM client.
 
-Streams Claude's response, splits into sentences, TTS each sentence,
-plays audio while Claude still generates the rest.
+Streams LLM response, splits into sentences, TTS each sentence,
+plays audio while the model still generates the rest.
 """
 
 import logging
 import re
 from typing import Any
-
-import anthropic
 
 from app.config import get_settings
 from app.tts.elevenlabs_client import text_to_speech
@@ -20,11 +18,16 @@ from app.ai.prompt_templates import (
     STANDARD_PROMPT,
     REASONING_PROMPT,
 )
+from app.ai.llm_client import (
+    chat,
+    chat_stream,
+    is_configured,
+    FALLBACK_MESSAGE,
+    LLM_MODEL,
+)
 
 logger = logging.getLogger(__name__)
 
-FALLBACK_MESSAGE = "Sorry, I couldn't respond right now. Try again in a moment."
-CLAUDE_MODEL = "claude-sonnet-4-5"
 MAX_TOKENS_DEFAULT = 120
 MAX_TOKENS_WITH_DOCS = 120
 
@@ -49,8 +52,7 @@ def _build_messages(command: str, context: dict[str, Any]) -> list[dict]:
 
 async def ai_summarize(meeting_id: str, previous_summary: str, turns: list[dict]) -> str:
     """Produce an updated rolling meeting summary."""
-    settings = get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not is_configured():
         return FALLBACK_MESSAGE
 
     turns_text = "\n".join(f"{t.get('speaker_name', 'Participant')}: {t['text']}" for t in turns)
@@ -61,12 +63,11 @@ async def ai_summarize(meeting_id: str, previous_summary: str, turns: list[dict]
         "Write a concise updated meeting summary. Keep it under 200 words."
     )
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        msg = await client.messages.create(
-            model=CLAUDE_MODEL, max_tokens=300,
+        result = await chat(
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
         )
-        return msg.content[0].text
+        return result or FALLBACK_MESSAGE
     except Exception as exc:
         logger.error("ai_summarize error: %s", exc)
         return FALLBACK_MESSAGE
@@ -77,13 +78,12 @@ async def ai_respond(
     command: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    """Stream Claude -> sentence-split -> TTS -> inject audio per sentence.
+    """Stream LLM -> sentence-split -> TTS -> inject audio per sentence.
 
     Returns dict with:
       - response_text: the full AI response
     """
-    settings = get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not is_configured():
         return {"response_text": FALLBACK_MESSAGE}
 
     # Fast-path: answer document listing queries directly from DB
@@ -132,8 +132,6 @@ async def ai_respond(
         selected_prompt = STANDARD_PROMPT
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-
         summary = context.get("summary", "")
         turns = context.get("turns") or context.get("recent_turns") or []
         recent = "\n".join(f"{t.get('speaker_name', 'Participant')}: {t['text']}" for t in turns)
@@ -148,7 +146,7 @@ async def ai_respond(
         messages = _build_messages(command, context)
 
         logger.info(
-            "ai_respond: sending to Claude — doc_ctx=%d chars, turns=%d, system_prompt=%d chars, command=%r",
+            "ai_respond: sending to LLM — doc_ctx=%d chars, turns=%d, system_prompt=%d chars, command=%r",
             len(doc_ctx), len(turns), len(system_prompt), command[:80],
         )
 
@@ -158,20 +156,18 @@ async def ai_respond(
         full_text = ""
         sent_up_to = 0
 
-        async with client.messages.stream(
-            model=CLAUDE_MODEL, max_tokens=max_tokens,
-            system=system_prompt, messages=messages,
-        ) as stream:
-            async for chunk in stream.text_stream:
-                full_text += chunk
-                unsent = full_text[sent_up_to:]
-                parts = _SENTENCE_RE.split(unsent)
-                if len(parts) > 1:
-                    for sentence in parts[:-1]:
-                        s = sentence.strip()
-                        if s:
-                            await _tts_and_inject(s, meeting_id)
-                    sent_up_to = full_text.rfind(parts[-1])
+        async for chunk in chat_stream(
+            messages=messages, system=system_prompt, max_tokens=max_tokens,
+        ):
+            full_text += chunk
+            unsent = full_text[sent_up_to:]
+            parts = _SENTENCE_RE.split(unsent)
+            if len(parts) > 1:
+                for sentence in parts[:-1]:
+                    s = sentence.strip()
+                    if s:
+                        await _tts_and_inject(s, meeting_id)
+                sent_up_to = full_text.rfind(parts[-1])
 
         remaining = full_text[sent_up_to:].strip()
         if remaining:
@@ -181,9 +177,6 @@ async def ai_respond(
 
         return {"response_text": full_text}
 
-    except anthropic.APIError as exc:
-        logger.error("Anthropic error for meeting=%s: %s", meeting_id, exc)
-        return {"response_text": FALLBACK_MESSAGE}
     except Exception as exc:
         logger.error("ai_respond error for meeting=%s: %s", meeting_id, exc)
         return {"response_text": FALLBACK_MESSAGE}

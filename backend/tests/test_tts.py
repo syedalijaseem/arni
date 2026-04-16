@@ -273,23 +273,18 @@ def _make_mock_stream(text: str):
 
 
 class TestAiServiceTtsChaining:
-    """Tests that ai_service chains Claude streaming → TTS → audio injection."""
+    """Tests that ai_service chains LLM streaming → TTS → audio injection."""
 
     @pytest.mark.asyncio
-    async def test_tts_called_after_claude_response(self):
-        """After Claude responds, text_to_speech is called with the response text."""
+    async def test_tts_called_after_llm_response(self):
+        """After LLM responds, text_to_speech is called with the response text."""
         context = {"system": "You are Arni.", "summary": "", "turns": []}
 
-        with patch("app.ai.ai_service.get_settings") as mock_settings:
-            mock_settings.return_value.ANTHROPIC_API_KEY = "test-key"
+        async def fake_stream(**kwargs):
+            yield "The answer is 42."
 
-            with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
-                mock_client = MagicMock()
-                MockAnthropic.return_value = mock_client
-                mock_client.messages.stream = MagicMock(
-                    return_value=_make_mock_stream("The answer is 42.")
-                )
-
+        with patch("app.ai.ai_service.is_configured", return_value=True):
+            with patch("app.ai.ai_service.chat_stream", side_effect=fake_stream):
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock) as mock_tts:
                     mock_tts.return_value = b"audio_bytes"
 
@@ -297,8 +292,8 @@ class TestAiServiceTtsChaining:
                         from app.ai.ai_service import ai_respond
                         result = await ai_respond("meet-1", "What is the answer?", context)
 
-                mock_tts.assert_called_once_with("The answer is 42.")
-                mock_inject.assert_called_once()
+                    mock_tts.assert_called_once_with("The answer is 42.")
+                    mock_inject.assert_called_once()
 
         assert result["response_text"] == "The answer is 42."
 
@@ -307,16 +302,11 @@ class TestAiServiceTtsChaining:
         """When TTS fails (returns None), ai_respond returns text only without crashing (NFR-010)."""
         context = {"system": "You are Arni.", "summary": "", "turns": []}
 
-        with patch("app.ai.ai_service.get_settings") as mock_settings:
-            mock_settings.return_value.ANTHROPIC_API_KEY = "test-key"
+        async def fake_stream(**kwargs):
+            yield "Text response here."
 
-            with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
-                mock_client = MagicMock()
-                MockAnthropic.return_value = mock_client
-                mock_client.messages.stream = MagicMock(
-                    return_value=_make_mock_stream("Text response here.")
-                )
-
+        with patch("app.ai.ai_service.is_configured", return_value=True):
+            with patch("app.ai.ai_service.chat_stream", side_effect=fake_stream):
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock) as mock_tts:
                     mock_tts.return_value = None
 
@@ -324,7 +314,7 @@ class TestAiServiceTtsChaining:
                         from app.ai.ai_service import ai_respond
                         result = await ai_respond("meet-1", "Tell me something.", context)
 
-                mock_inject.assert_not_called()
+                    mock_inject.assert_not_called()
 
         assert result["response_text"] == "Text response here."
 
@@ -333,19 +323,15 @@ class TestAiServiceTtsChaining:
         """inject_audio is skipped entirely when text_to_speech returns None."""
         context = {"system": "", "summary": "", "turns": []}
 
-        with patch("app.ai.ai_service.get_settings") as mock_settings:
-            mock_settings.return_value.ANTHROPIC_API_KEY = "key"
+        async def fake_stream(**kwargs):
+            yield "Response."
 
-            with patch("app.ai.ai_service.anthropic.AsyncAnthropic") as MockAnthropic:
-                mock_client = MagicMock()
-                MockAnthropic.return_value = mock_client
-                mock_client.messages.stream = MagicMock(
-                    return_value=_make_mock_stream("Response.")
-                )
-
+        with patch("app.ai.ai_service.is_configured", return_value=True):
+            with patch("app.ai.ai_service.chat_stream", side_effect=fake_stream):
                 with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock, return_value=None):
                     with patch("app.ai.ai_service.inject_audio", new_callable=AsyncMock) as mock_inject:
                         from app.ai.ai_service import ai_respond
                         await ai_respond("meet-1", "cmd", context)
 
                         mock_inject.assert_not_called()
+

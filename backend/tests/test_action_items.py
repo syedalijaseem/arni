@@ -287,20 +287,12 @@ class TestTimelineEndpoint:
     @pytest.mark.asyncio
     async def test_timeline_returns_valid_array(self):
         """Timeline endpoint returns array of {timestamp, topic} objects."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text='[{"timestamp": "00:00", "topic": "Introductions"}, {"timestamp": "05:30", "topic": "Budget Review"}]'
-        )]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value='[{"timestamp": "00:00", "topic": "Introductions"}, {"timestamp": "05:30", "topic": "Budget Review"}]',
+            ):
                 from httpx import AsyncClient, ASGITransport
                 app = _make_ai_app()
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -321,10 +313,7 @@ class TestTimelineEndpoint:
     @pytest.mark.asyncio
     async def test_timeline_no_api_key_returns_503(self):
         """Missing API key returns 503."""
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = ""
-
-        with patch("app.config.get_settings", return_value=mock_settings):
+        with patch("app.ai.llm_client.is_configured", return_value=False):
             from httpx import AsyncClient, ASGITransport
             app = _make_ai_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -338,20 +327,12 @@ class TestTimelineEndpoint:
     @pytest.mark.asyncio
     async def test_timeline_handles_markdown_fenced_response(self):
         """Timeline strips markdown code fences from LLM response."""
-        mock_response = MagicMock()
-        mock_response.content = [MagicMock(
-            text='```json\n[{"timestamp": "00:00", "topic": "Kickoff"}]\n```'
-        )]
-
-        mock_settings = MagicMock()
-        mock_settings.ANTHROPIC_API_KEY = "test-key"
-
-        with patch("app.config.get_settings", return_value=mock_settings):
-            with patch("anthropic.AsyncAnthropic") as mock_anthropic:
-                mock_client = MagicMock()
-                mock_client.messages.create = AsyncMock(return_value=mock_response)
-                mock_anthropic.return_value = mock_client
-
+        with patch("app.ai.llm_client.is_configured", return_value=True):
+            with patch(
+                "app.ai.llm_client.chat",
+                new_callable=AsyncMock,
+                return_value='```json\n[{"timestamp": "00:00", "topic": "Kickoff"}]\n```',
+            ):
                 from httpx import AsyncClient, ASGITransport
                 app = _make_ai_app()
                 async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -439,10 +420,6 @@ class TestTimelinePostProcessingIntegration:
         Meeting document under timeline[].
         """
         meeting_id = str(ObjectId())
-        timeline_json = (
-            '[{"timestamp": "00:00", "topic": "Opening"}, '
-            '{"timestamp": "10:00", "topic": "Closing"}]'
-        )
 
         mock_db = MagicMock()
         mock_db.meetings.update_one = AsyncMock()
@@ -456,43 +433,28 @@ class TestTimelinePostProcessingIntegration:
             return_value=MagicMock(inserted_id=ObjectId())
         )
 
-        def make_response(text: str):
-            r = MagicMock()
-            r.content = [MagicMock(text=text)]
-            return r
-
-        # Responses in the order processor.run() calls Claude:
-        # 1. title+summary (single combined call returning JSON object)
-        # 2. decisions
-        # 3. actions
-        # 4. timeline
+        # Responses in the order processor.run() calls the LLM:
+        # 1. title+summary  2. decisions  3. actions  4. timeline
         responses = [
-            make_response('{"title": "Test Meeting", "summary": "A short summary."}'),  # title+summary
-            make_response("[]"),                 # decisions
-            make_response("[]"),                 # actions
-            make_response(timeline_json),        # timeline
+            '{"title": "Test Meeting", "summary": "A short summary."}',
+            '[]',
+            '[]',
+            '[{"timestamp": "00:00", "topic": "Opening"}, {"timestamp": "10:00", "topic": "Closing"}]',
         ]
         call_count = {"n": 0}
 
-        async def fake_create(**kwargs):
+        async def fake_llm_chat(**kwargs):
             n = call_count["n"]
             call_count["n"] += 1
-            return responses[n] if n < len(responses) else make_response("[]")
+            return responses[n] if n < len(responses) else "[]"
 
-        mock_anthropic_client = MagicMock()
-        mock_anthropic_client.messages.create = fake_create
-
-        # Patch at the source where processor.py resolves its references
         with patch("app.postprocessing.processor.get_database", return_value=mock_db):
             with patch("app.postprocessing.processor.get_redis", return_value=AsyncMock()):
                 with patch(
                     "app.postprocessing.processor.publish_meeting_processed",
                     new_callable=AsyncMock,
                 ):
-                    with patch(
-                        "anthropic.AsyncAnthropic",
-                        return_value=mock_anthropic_client,
-                    ):
+                    with patch("app.ai.llm_client.chat", side_effect=fake_llm_chat):
                         from app.postprocessing.processor import run
                         await run(meeting_id)
 

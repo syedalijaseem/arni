@@ -4,19 +4,25 @@ __pycache__/
 *.pyc
 .venv/
 
-# Environment
+# Environment files — NEVER commit real secrets
 .env
+.env.local
 *.env.local
+backend/.env
+frontend/.env.local
 
 # Build
 dist/
 build/
 
-# IDE
+# IDE / Agent
 .vscode/
 .idea/
 *.swp
 *.swo
+.claude/
+CLAUDE.md
+WORKFLOW.md
 
 # OS
 .DS_Store
@@ -25,9 +31,9 @@ Thumbs.db
 # Docker
 *.log
 
-# Claude Code
-.claude/settings.local.json
-.claude/todos/
+# Cloudflare Tunnel
+cloudflared.deb
+*.pid
 
 # Python
 *.pyo
@@ -52,3 +58,9 @@ tmp/
 # Test artifacts
 test-results/
 coverage/
+
+# Accidental pip artifacts
+backend/=*
+
+# Scratch/debug scripts
+backend/test_regex.py

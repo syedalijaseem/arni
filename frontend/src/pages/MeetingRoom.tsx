@@ -122,6 +122,8 @@ function MeetingRoomContent() {
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingAudioRef = useRef(false);
 
   // Participant management (host-only)
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
@@ -129,6 +131,24 @@ function MeetingRoomContent() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const isHost = meeting?.host_id === user?.id;
+
+  // Sequential audio playback — prevents overlapping Arni voices
+  function playNextAudio() {
+    if (audioQueueRef.current.length === 0) {
+      isPlayingAudioRef.current = false;
+      return;
+    }
+    isPlayingAudioRef.current = true;
+    const b64 = audioQueueRef.current.shift()!;
+    try {
+      const audio = new Audio(`data:audio/wav;base64,${b64}`);
+      audio.onended = () => playNextAudio();
+      audio.onerror = () => playNextAudio();
+      audio.play().catch(() => playNextAudio());
+    } catch {
+      playNextAudio();
+    }
+  }
 
   // Meeting duration timer
   useEffect(() => {
@@ -236,14 +256,11 @@ function MeetingRoomContent() {
           return;
         }
 
-        // Handle Arni audio delivered via WebSocket (bypasses Daily.co virtual mic)
+        // Handle Arni audio delivered via WebSocket — queued to prevent overlapping playback
         if (data.type === "arni_audio" && data.audio) {
-          try {
-            const audioUrl = `data:audio/wav;base64,${data.audio}`;
-            const audio = new Audio(audioUrl);
-            audio.play().catch(() => {});
-          } catch {
-            // best effort — audio playback not critical to block on
+          audioQueueRef.current.push(data.audio);
+          if (!isPlayingAudioRef.current) {
+            playNextAudio();
           }
           return;
         }

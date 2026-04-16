@@ -16,6 +16,7 @@ from app.ai.context_manager import build_context
 from app.ai.ai_service import ai_respond, ai_summarize
 from app.ai.response_queue import get_or_create_queue, RATE_LIMIT_SENTINEL
 from app.ai.fact_checker import fact_checker
+from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 from app.database import get_database
 from app.tts.elevenlabs_client import text_to_speech
 from app.tts.audio_injection import inject_audio
@@ -309,11 +310,9 @@ async def extract_decisions(body: AIExtractDecisionsRequest) -> AIExtractDecisio
     Returns an empty list when no explicit decisions exist.
     """
     import json
-    from app.config import get_settings as _get_settings
-    import anthropic as _anthropic
+    from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 
-    settings = _get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not llm_is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service not configured",
@@ -326,14 +325,14 @@ async def extract_decisions(body: AIExtractDecisionsRequest) -> AIExtractDecisio
     )
 
     try:
-        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
+        raw = await llm_chat(
             system=system_prompt,
             messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+            max_tokens=1024,
         )
-        raw = message.content[0].text.strip()
+        if not raw:
+            return AIExtractDecisionsResponse(decisions=[])
+        raw = raw.strip()
         if raw.startswith("```"):
             raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
         decisions = json.loads(raw)
@@ -356,11 +355,9 @@ async def extract_actions(body: AIExtractActionsRequest) -> AIExtractActionsResp
     Returns an empty list when no explicit action items exist.
     """
     import json
-    from app.config import get_settings as _get_settings
-    import anthropic as _anthropic
+    from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 
-    settings = _get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not llm_is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service not configured",
@@ -375,14 +372,14 @@ async def extract_actions(body: AIExtractActionsRequest) -> AIExtractActionsResp
     )
 
     try:
-        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
+        raw = await llm_chat(
             system=system_prompt,
             messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+            max_tokens=1024,
         )
-        raw = message.content[0].text.strip()
+        if not raw:
+            return AIExtractActionsResponse(action_items=[])
+        raw = raw.strip()
         if raw.startswith("```"):
             raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
         items = json.loads(raw)
@@ -427,11 +424,9 @@ async def generate_timeline(body: AITimelineRequest) -> AITimelineResponse:
     SRS ref: FR-047.
     """
     import json
-    from app.config import get_settings as _get_settings
-    import anthropic as _anthropic
+    from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 
-    settings = _get_settings()
-    if not settings.ANTHROPIC_API_KEY:
+    if not llm_is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service not configured",
@@ -445,14 +440,14 @@ async def generate_timeline(body: AITimelineRequest) -> AITimelineResponse:
     )
 
     try:
-        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
+        raw = await llm_chat(
             system=system_prompt,
             messages=[{"role": "user", "content": f"Transcript:\n{body.transcript_text}"}],
+            max_tokens=1024,
         )
-        raw = message.content[0].text.strip()
+        if not raw:
+            return AITimelineResponse(timeline=[])
+        raw = raw.strip()
         if raw.startswith("```"):
             raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
         items = json.loads(raw)
@@ -523,7 +518,7 @@ async def qa(body: AIQARequest) -> AIQAResponse:
         upsert=True,
     )
 
-    if not settings.ANTHROPIC_API_KEY:
+    if not llm_is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service not configured",
@@ -566,17 +561,15 @@ async def qa(body: AIQARequest) -> AIQAResponse:
     )
 
     try:
-        import anthropic as _anthropic
-        client = _anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
+        answer = await llm_chat(
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
+            max_tokens=1024,
         )
-        answer = message.content[0].text
+        if not answer:
+            answer = "Sorry, I was unable to generate an answer at this time."
     except Exception as exc:
-        logger.error("QA Claude call failed: %s", exc)
+        logger.error("QA LLM call failed: %s", exc)
         answer = "Sorry, I was unable to generate an answer at this time."
 
     # Build source attribution list

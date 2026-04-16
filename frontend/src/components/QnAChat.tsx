@@ -131,8 +131,8 @@ export default function QnAChat({ meetingId, token }: QnAChatProps) {
                     {msg.sources.length} source{msg.sources.length > 1 ? 's' : ''}
                   </summary>
                   <ul className="mt-1 space-y-1 pl-2 border-l border-border">
-                    {msg.sources.map((src) => (
-                      <li key={src.chunk_index} className="line-clamp-2 text-muted-foreground">
+                    {msg.sources.map((src, si) => (
+                      <li key={si} className="line-clamp-2 text-muted-foreground">
                         {src.text}
                       </li>
                     ))}

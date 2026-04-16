@@ -27,6 +27,7 @@ from app.database import get_database, get_redis
 from app.events.publisher import publish_meeting_processed, publish_meeting_ended
 from app.models.meeting import MeetingState
 from app.rag.embedder import embed_transcript
+from app.ai.llm_client import chat as llm_chat, is_configured as llm_is_configured
 
 logger = logging.getLogger(__name__)
 
@@ -68,34 +69,24 @@ def _build_transcript_text(turns: list[dict]) -> str:
     )
 
 
-async def _call_claude(system_prompt: str, user_message: str) -> str | None:
+async def _call_llm(system_prompt: str, user_message: str) -> str | None:
     """
-    Make a single Claude API call and return response text.
+    Make a single LLM API call and return response text.
     Returns None on any error or timeout (30s).
     """
-    if not settings.ANTHROPIC_API_KEY:
-        logger.error("ANTHROPIC_API_KEY not set — cannot run post-processing")
+    if not llm_is_configured():
+        logger.error("LLM API key not set — cannot run post-processing")
         return None
 
-    try:
-        import anthropic
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await asyncio.wait_for(
-            client.messages.create(
-                model="claude-sonnet-4-5",
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
-            ),
-            timeout=30.0,
-        )
-        return message.content[0].text
-    except asyncio.TimeoutError:
-        logger.error("Claude API call timed out in post-processing (30s)")
-        return None
-    except Exception as exc:
-        logger.error("Claude API error in post-processing: %s", exc)
-        return None
+    result = await llm_chat(
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+        max_tokens=1024,
+        timeout=30.0,
+    )
+    if result is None:
+        logger.error("LLM API call failed or timed out in post-processing")
+    return result
 
 
 def _parse_json_list(raw: str | None, default: list) -> list:
@@ -168,7 +159,7 @@ async def run(meeting_id: str) -> None:
         title = "Meeting Summary"
         summary = ""
         if transcript_text:
-            raw_title_summary = await _call_claude(
+            raw_title_summary = await _call_llm(
                 GENERATE_TITLE_SYSTEM_PROMPT,
                 f"Transcript:\n{transcript_text}",
             )
@@ -179,7 +170,7 @@ async def run(meeting_id: str) -> None:
         # Step 4: Extract decisions (explicit only, FR-042)
         decisions: list[str] = []
         if transcript_text:
-            raw_decisions = await _call_claude(
+            raw_decisions = await _call_llm(
                 EXTRACT_DECISIONS_SYSTEM_PROMPT,
                 f"Transcript:\n{transcript_text}",
             )
@@ -192,7 +183,7 @@ async def run(meeting_id: str) -> None:
         # Step 5: Extract action items (explicit only, FR-043)
         action_item_ids: list[Any] = []
         if transcript_text:
-            raw_actions = await _call_claude(
+            raw_actions = await _call_llm(
                 EXTRACT_ACTIONS_SYSTEM_PROMPT,
                 f"Transcript:\n{transcript_text}",
             )
@@ -218,7 +209,7 @@ async def run(meeting_id: str) -> None:
         # Generate timeline
         timeline: list[dict] = []
         if transcript_text:
-            raw_timeline = await _call_claude(
+            raw_timeline = await _call_llm(
                 GENERATE_TIMELINE_SYSTEM_PROMPT,
                 f"Transcript:\n{transcript_text}",
             )

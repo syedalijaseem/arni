@@ -75,29 +75,14 @@ class TestAiRespondRouting:
             "document_context": "some doc",
             "system": "",
         }
-        mock_message = MagicMock()
-        mock_message.content = [MagicMock(text="I recommend Option B.")]
-        mock_message.usage = MagicMock(output_tokens=20)
+
+        async def fake_stream(**kwargs):
+            yield "I recommend Option B."
 
         with patch("app.ai.context_manager._retrieve_document_context", new_callable=AsyncMock, return_value=""):
             with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock, return_value=None):
-                with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-                    mock_client_inst = MagicMock()
-                    mock_stream = MagicMock()
-                    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-                    mock_stream.__aexit__ = AsyncMock(return_value=False)
-                    async def _chunks():
-                        yield "I recommend Option B."
-                    mock_stream.text_stream = _chunks()
-                    mock_client_inst.messages.stream = MagicMock(return_value=mock_stream)
-                    mock_anthropic_cls.return_value = mock_client_inst
-
-                    with patch("app.ai.ai_service.get_settings") as mock_settings:
-                        mock_settings.return_value = MagicMock(
-                            ANTHROPIC_API_KEY="test-key",
-                            ELEVENLABS_API_KEY=None,
-                        )
-
+                with patch("app.ai.ai_service.is_configured", return_value=True):
+                    with patch("app.ai.ai_service.chat_stream", side_effect=fake_stream):
                         from app.ai.ai_service import ai_respond
                         result = await ai_respond(
                             meeting_id="meet-1",
@@ -117,23 +102,14 @@ class TestAiRespondRouting:
             "document_context": "",
             "system": "",
         }
-        mock_message = MagicMock()
-        mock_message.content = [MagicMock(text="Here is the summary.")]
-        mock_message.usage = MagicMock(output_tokens=10)
+
+        async def fake_stream(**kwargs):
+            yield "Here is the summary."
 
         with patch("app.ai.ai_service.build_reasoning_context", new_callable=AsyncMock) as mock_rsn_ctx:
             with patch("app.ai.ai_service.text_to_speech", new_callable=AsyncMock, return_value=None):
-                with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-                    mock_client_inst = MagicMock()
-                    mock_client_inst.messages.create = AsyncMock(return_value=mock_message)
-                    mock_anthropic_cls.return_value = mock_client_inst
-
-                    with patch("app.ai.ai_service.get_settings") as mock_settings:
-                        mock_settings.return_value = MagicMock(
-                            ANTHROPIC_API_KEY="test-key",
-                            ELEVENLABS_API_KEY=None,
-                        )
-
+                with patch("app.ai.ai_service.is_configured", return_value=True):
+                    with patch("app.ai.ai_service.chat_stream", side_effect=fake_stream):
                         from app.ai.ai_service import ai_respond
                         result = await ai_respond(
                             meeting_id="meet-1",
