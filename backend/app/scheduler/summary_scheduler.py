@@ -99,7 +99,7 @@ async def _default_summarize(meeting_id: str) -> None:
     from app.config import get_settings as _gs
 
     settings = _gs()
-    url = f"http://localhost:8000/ai/summarize"
+    url = f"{settings.BACKEND_URL}/ai/summarize"
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             await client.post(url, json={"meeting_id": meeting_id})

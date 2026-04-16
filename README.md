@@ -173,6 +173,8 @@ echo "VITE_BACKEND_URL=https://<your-backend-tunnel>.trycloudflare.com" > fronte
 | `MONGODB_URL`        | Yes      | MongoDB connection string                             |
 | `REDIS_URL`          | Yes      | Redis connection string                               |
 | `JWT_SECRET`         | Yes      | Secret key for JWT tokens (**change in production!**) |
+| `FRONTEND_URL`       | No       | Frontend URL for invite link generation               |
+| `BACKEND_URL`        | No       | Backend URL for internal calls (set when using tunnels/proxies) |
 | `DAILY_API_KEY`      | Yes      | Daily.co API key                                      |
 | `DEEPGRAM_API_KEY`   | Yes      | Deepgram transcription key                            |
 | `DEEPSEEK_API_KEY`   | Yes      | DeepSeek LLM API key                                  |

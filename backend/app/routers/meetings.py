@@ -45,9 +45,10 @@ async def _summary_loop(meeting_id: str, interval_seconds: int) -> None:
     while True:
         await _asyncio.sleep(interval_seconds)
         try:
+            url = f"{settings.BACKEND_URL}/ai/summarize"
             async with httpx.AsyncClient(timeout=30) as client:
                 await client.post(
-                    "http://localhost:8000/ai/summarize",
+                    url,
                     json={"meeting_id": meeting_id},
                 )
         except Exception as exc:
