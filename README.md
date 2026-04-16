@@ -18,6 +18,25 @@
 - **Editable Action Items** — Edit AI-generated action items after the meeting
 - **Light & Dark Mode** — Full theme support across the UI
 
+## 📸 Screenshots
+
+### Active Meeting Room
+<div align="center">
+  <img src="docs/images/meeting-room-dark.png" alt="Active meeting interface with transcription, summary, and video tiles" width="100%">
+</div>
+
+### Dashboard (Light & Dark)
+<div align="center">
+  <img src="docs/images/dashboard-light.png" alt="Dashboard Light Mode" width="49%">
+  <img src="docs/images/dashboard-dark.png" alt="Dashboard Dark Mode" width="49%">
+</div>
+
+### Automated Meeting Reports (Post-Meeting Q&A)
+<div align="center">
+  <img src="docs/images/report-qna-light.png" alt="Meeting Summary Light" width="49%">
+  <img src="docs/images/report-qna-dark.png" alt="Meeting Summary Dark" width="49%">
+</div>
+
 ## 🏗️ Architecture
 
 ```

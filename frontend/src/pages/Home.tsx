@@ -119,8 +119,8 @@ function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       {/* Nav */}
-      <header className="flex items-center justify-between px-6 md:px-12 py-4 border-b border-border">
-        <span className="text-lg font-bold tracking-tight">
+      <header className="sticky top-0 z-50 w-full flex items-center justify-between px-6 md:px-12 py-4 border-b border-border/50 bg-background/80 backdrop-blur-md">
+        <span className="text-xl font-bold tracking-tight">
           <span className="text-primary">Arni</span>
         </span>
         <div className="flex items-center gap-2">
@@ -137,15 +137,16 @@ function Home() {
       </header>
 
       {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center px-6 py-24 md:py-32">
-        <div className="border border-primary/30 bg-primary/10 text-primary text-sm rounded-full px-3 py-1 mb-8">
+      <section className="relative flex-1 flex flex-col items-center justify-center px-6 py-24 md:py-32 overflow-hidden">
+        <div className="inline-flex items-center border border-primary/30 bg-primary/10 text-primary text-sm rounded-full px-4 py-1.5 mb-8">
+          <span className="flex h-2 w-2 rounded-full bg-primary mr-2 animate-pulse" />
           AI Meeting Participant
         </div>
 
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-center leading-[1.1]">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-center leading-[1.1]">
           Your AI teammate
           <br />
-          <span className="text-primary">that never forgets.</span>
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">that never forgets.</span>
         </h1>
 
         <p className="mt-6 text-lg md:text-xl text-muted-foreground text-center max-w-2xl leading-relaxed">
@@ -154,20 +155,21 @@ function Home() {
           can access &mdash; meeting after meeting.
         </p>
 
-        <div className="flex gap-3 mt-10">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-12 relative z-10">
           {isAuthenticated ? (
-            <Link to="/dashboard" className={buttonVariants({ size: "lg" })}>Go to Dashboard</Link>
+            <Link to="/dashboard" className={buttonVariants({ size: "lg", className: "rounded-full px-8" })}>Go to Dashboard</Link>
           ) : (
             <>
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center rounded-md px-6 py-3 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground transition-colors"
+                className="inline-flex items-center justify-center rounded-full px-8 py-3.5 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] hover:-translate-y-0.5"
               >
                 Get started free
+                <svg className="ml-2 w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
               </Link>
               <a
                 href="#how-it-works"
-                className="inline-flex items-center justify-center rounded-md px-6 py-3 text-sm font-medium border border-border text-foreground hover:bg-accent transition-colors"
+                className="inline-flex items-center justify-center rounded-full px-8 py-3.5 text-base font-medium border border-border bg-background/50 hover:bg-accent text-foreground transition-all hover:-translate-y-0.5 backdrop-blur-sm"
               >
                 See how it works
               </a>
@@ -175,34 +177,24 @@ function Home() {
           )}
         </div>
 
-        {/* System status */}
-        {health && (
-          <Card className="mt-16 w-full max-w-sm bg-card/50 border-border">
-            <CardContent className="space-y-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                System Status
-              </p>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground">API</span>
-                <span className="flex items-center gap-1.5 text-emerald-500">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  Online
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground">Database</span>
-                <span className="flex items-center gap-1.5 text-emerald-500">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  {health.database === "connected" ? "Connected" : "Disconnected"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-foreground">Version</span>
-                <span className="font-mono text-muted-foreground">{health.version}</span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Hero Image with Glow */}
+        <div className="relative mt-16 md:mt-24 w-full max-w-5xl mx-auto">
+          {/* Ambient Glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] max-w-4xl bg-primary/20 blur-[100px] rounded-[100%] -z-10 pointer-events-none" />
+          
+          <div className="rounded-xl overflow-hidden border border-border/60 bg-background/50 backdrop-blur-sm shadow-2xl shadow-primary/10 relative z-10">
+            <img 
+              src="/screenshots/meeting-room-light.png" 
+              alt="Arni Meeting Room Interface" 
+              className="w-full h-auto object-cover dark:hidden" 
+            />
+            <img 
+              src="/screenshots/meeting-room-dark.png" 
+              alt="Arni Meeting Room Interface" 
+              className="w-full h-auto object-cover hidden dark:block" 
+            />
+          </div>
+        </div>
       </section>
 
       {/* Features */}
@@ -214,18 +206,74 @@ function Home() {
           <p className="text-muted-foreground text-center mb-14 max-w-xl mx-auto">
             From live voice AI to persistent cross-meeting memory.
           </p>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 mt-16">
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="bg-card/50 border border-border rounded-xl p-6"
+                className="group relative bg-background/50 backdrop-blur-sm border border-border rounded-2xl p-8 hover:bg-card/50 transition-colors"
               >
-                <div className="text-2xl mb-3">{f.icon}</div>
-                <h3 className="text-foreground font-semibold mb-1">{f.title}</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
+                <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl" />
+                <div className="relative z-10">
+                  <div className="text-3xl mb-4 p-2 w-14 h-14 flex items-center justify-center rounded-xl bg-primary/10 border border-primary/20 text-primary">{f.icon}</div>
+                  <h3 className="text-foreground font-semibold text-lg mb-2">{f.title}</h3>
+                  <p className="text-muted-foreground leading-relaxed">{f.desc}</p>
+                </div>
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Deep Dives */}
+      <section className="px-6 md:px-12 py-24 border-t border-border overflow-hidden">
+        <div className="max-w-6xl mx-auto flex flex-col gap-32">
+          
+          {/* Feature 1 */}
+          <div className="flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+            <div className="flex-1 space-y-6">
+              <h2 className="text-3xl md:text-4xl font-bold">Automated Meeting Reports</h2>
+              <p className="text-lg text-muted-foreground leading-relaxed">
+                Get an accurate, detailed report as soon as your call ends. Arni automatically compiles key decisions, timelines, and generates editable action items.
+              </p>
+              <ul className="space-y-4 text-base text-foreground/80 mt-6">
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> High-quality AI summaries</li>
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> Editable action lists</li>
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> Chat with past meetings</li>
+              </ul>
+            </div>
+            
+            <div className="flex-1 w-full relative group">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[110%] h-[110%] max-w-lg bg-primary/10 blur-[80px] rounded-[100%] -z-10 transition-all duration-700 group-hover:bg-primary/20" />
+              <div className="rounded-xl overflow-hidden border border-border/60 bg-background/50 backdrop-blur-sm shadow-2xl shadow-primary/5 transform translate-x-4 lg:translate-x-8 transition-transform duration-1000 ease-out group-hover:translate-x-0 relative z-10">
+                <img src="/screenshots/report-qna-light.png" alt="Smart Search" className="w-full h-auto object-cover dark:hidden" />
+                <img src="/screenshots/report-qna-dark.png" alt="Smart Search" className="w-full h-auto object-cover hidden dark:block" />
+              </div>
+            </div>
+          </div>
+
+          {/* Feature 2 */}
+          <div className="flex flex-col lg:flex-row-reverse items-center gap-12 lg:gap-20">
+            <div className="flex-1 space-y-6">
+              <h2 className="text-3xl md:text-4xl font-bold">Real-Time AI Participant</h2>
+              <p className="text-lg text-muted-foreground leading-relaxed">
+                Invite Arni to your meetings as an active voice participant. Use wake words to talk to Arni without typing, fetching data from your documents instantly.
+              </p>
+              <ul className="space-y-4 text-base text-foreground/80 mt-6">
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> Voice-activated assistant</li>
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> Real-time live transcript</li>
+                <li className="flex items-center gap-3"><span className="text-primary text-xl">✔</span> Document-aware Q&A</li>
+              </ul>
+            </div>
+            
+            <div className="flex-1 w-full relative group">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[110%] h-[110%] max-w-lg bg-primary/10 blur-[80px] rounded-[100%] -z-10 transition-all duration-700 group-hover:bg-primary/20" />
+              <div className="rounded-xl overflow-hidden border border-border/60 bg-background/50 backdrop-blur-sm shadow-2xl shadow-primary/5 transform -translate-x-4 lg:-translate-x-8 transition-transform duration-1000 ease-out group-hover:translate-x-0 relative z-10">
+                <img src="/screenshots/meeting-room-light.png" alt="Persistent Projects" className="w-full h-auto object-cover dark:hidden" />
+                <img src="/screenshots/meeting-room-dark.png" alt="Persistent Projects" className="w-full h-auto object-cover hidden dark:block" />
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 
